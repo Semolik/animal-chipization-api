@@ -13,9 +13,9 @@ class Area(Base):
     name = Column(String, nullable=False)
     areaPoints = relationship("Point", secondary="area_point")
 
-
 class AreaPoint(Base):
     __tablename__ = "area_point"
-    area_id = Column(Integer, ForeignKey('areas.id'), primary_key=True)
+    area_id = Column(Integer, ForeignKey('areas.id', ondelete="CASCADE"), primary_key=True)
     point_id = Column(Integer, ForeignKey('point.id'), primary_key=True)
+
 

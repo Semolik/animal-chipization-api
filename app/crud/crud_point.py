@@ -10,8 +10,11 @@ class PointCRUD(CRUDBase):
     def get_point_by_coordinates(self, latitude: float, longitude: float) -> Point | None:
         return self.db.query(Point).filter(Point.latitude == latitude, Point.longitude == longitude).first()
 
-    def create_point(self, latitude: float, longitude: float) -> Point:
+    def create_point(self, latitude: float, longitude: float,only_add=False) -> Point:
         point = Point(latitude=latitude, longitude=longitude)
+        if only_add:
+            self.db.add(point)
+            return point
         return self.create(point)
 
     def update_point(self, db_point: Point, latitude: float, longitude: float) -> Point:

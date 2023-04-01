@@ -7,6 +7,7 @@ class AreaValidator:
     def __init__(self, points: List[LocationBase]):
         self.points = points
 
+
     def validate(self) -> bool:
         if len(self.points) < 3:
             print("len(self.points) < 3")
