@@ -1,2 +1,0 @@
-# animal-chipization-api
- 

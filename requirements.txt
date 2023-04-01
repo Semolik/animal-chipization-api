@@ -1,0 +1,10 @@
+sqlalchemy==1.4.41
+fastapi
+uvicorn
+passlib
+pydantic[email]
+bcrypt
+psycopg2
+uvicorn
+requests
+python-dateutil
