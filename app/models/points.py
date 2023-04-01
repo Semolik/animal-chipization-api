@@ -1,4 +1,3 @@
-from sqlalchemy.orm import object_session
 from app.db.base_class import Base
 from sqlalchemy import Column, Integer, FLOAT
 

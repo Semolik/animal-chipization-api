@@ -6,6 +6,7 @@ from app.db.base_class import Base
 from app.models.user import *
 from app.models.animals import *
 from app.models.points import *
+from app.models.areas import *
 
 
 engine = create_engine(settings.DATABASE_URI)

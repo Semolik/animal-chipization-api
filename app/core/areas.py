@@ -8,13 +8,17 @@ class AreaValidator:
         self.points = points
 
     def validate(self) -> bool:
-        if len(self.points) < 4:
+        if len(self.points) < 3:
+            print("len(self.points) < 3")
             return False
-        if self.points[0] != self.points[-1]:
-            return False
+
         for i in range(1, len(self.points) - 1):
-            for j in range(i + 1, len(self.points) - 1):
+            for j in range(i + 1, len(self.points)):
+                if j == i + 1:
+                    # пропускаем соединение между первой и последней точками
+                    continue
                 if self.do_segments_intersect(self.points[i - 1], self.points[i], self.points[j - 1], self.points[j]):
+                    print("self.do_segments_intersect(self.points[i - 1], self.points[i], self.points[j - 1], self.points[j])")
                     return False
         return True
 
