@@ -19,7 +19,7 @@ class PointCRUD(CRUDBase):
         db_point.longitude = longitude
         return self.update(db_point)
 
-    def is_allow_delete(self, db_point: Point) -> bool:
+    def is_allow_change(self, db_point: Point) -> bool:
         animal_locations = self.db.query(AnimalLocation).filter(
             AnimalLocation.locationPointId == db_point.id).first() is None
         animals = self.db.query(Animal).filter(

@@ -1,6 +1,6 @@
 from typing import List
 from app.db.base import CRUDBase
-from app.models.user import User
+from app.models.user import User, UserRoles
 from app.models.animals import Animal
 from passlib.context import CryptContext
 
@@ -28,13 +28,14 @@ class UserCRUD(CRUDBase):
         query = query.order_by(User.id.asc())
         return query.slice(from_, from_ + size).all()
 
-    def create_user(self, firstName: str, lastName: str, email: str, password: str) -> User:
+    def create_user(self, firstName: str, lastName: str, email: str, password: str, role: UserRoles = None) -> User:
         password_hash = self.get_password_hash(password)
         user = User(
             firstName=firstName,
             lastName=lastName,
             email=email,
-            hashed_password=password_hash
+            hashed_password=password_hash,
+            role=role
         )
         return self.create(user)
 

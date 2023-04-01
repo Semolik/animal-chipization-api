@@ -3,38 +3,28 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from app.crud.crud_animal import AnimalCRUD
 from app.crud.crud_point import PointCRUD
 from app.crud.crud_types import AnimalTypeCRUD
-from app.db.db import get_db
-from app.helpers.auth_helper import Authorize
+from app.core.auth import Authorize
 from app.models.animals import AnimalAlive, AnimalGender
 from app.schemas.animals import Animal, AnimalCreate, AnimalLocation, UpdateAnimal, UpdateAnimalLocation, UpdateAnimalType
 from app.schemas.types import ISODateTime
 from app.crud.crud_user import UserCRUD
-from sqlalchemy.orm import Session
-from app.api.endpoints.animals.types import router as types_router
-
-
 router = APIRouter(tags=["Животные"], prefix="/animals")
-router.include_router(types_router)
 
 
 @router.post("", response_model=Animal, status_code=status.HTTP_201_CREATED)
 def create_animal(
     animal: AnimalCreate,
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize())
+    authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
 ):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
-    chipper = UserCRUD(db).get_user_by_id(animal.chipperId)
+    animal_crud = AnimalCRUD(authorize.db)
+    chipper = UserCRUD(authorize.db).get_user_by_id(animal.chipperId)
     if not chipper:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Аккаунт с id {animal.chipperId} не найден"
         )
     chipping_location = PointCRUD(
-        db).get_point_by_id(animal.chippingLocationId)
+        authorize.db).get_point_by_id(animal.chippingLocationId)
     if not chipping_location:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -42,7 +32,7 @@ def create_animal(
         )
     types = []
     for animal_type_id in animal.animalTypes:
-        animal_type = AnimalTypeCRUD(db).get_animal_type_by_id(animal_type_id)
+        animal_type = AnimalTypeCRUD(authorize.db).get_animal_type_by_id(animal_type_id)
         if not animal_type:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -75,13 +65,9 @@ def search_animals(
     gender: AnimalGender = None,
     from_: int = Query(0, ge=0, alias="from"),
     size: int = Query(10, gt=0),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(test_if_header_exsits=True))
+    authorize: Authorize = Depends(Authorize()),
 ):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animals_crud = AnimalCRUD(db)
+    animals_crud = AnimalCRUD(authorize.db)
     animals = animals_crud.search_animals(
         startDateTime=startDateTime,
         endDateTime=endDateTime,
@@ -97,13 +83,9 @@ def search_animals(
 @router.get("/{animalId}", response_model=Animal)
 def get_animal(
     animalId: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(test_if_header_exsits=True))
+    authorize: Authorize = Depends(Authorize()),
 ):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
+    animal_crud = AnimalCRUD(authorize.db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
@@ -117,20 +99,16 @@ def get_animal(
 def update_animal(
     animal_data: UpdateAnimal,
     animalId: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(error_on_unauthorized=False))
+    authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
 ):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
+    animal_crud = AnimalCRUD(authorize.db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Животное с id {animalId} не найдено"
         )
-    chipper = UserCRUD(db).get_user_by_id(animal_data.chipperId)
+    chipper = UserCRUD(authorize.db).get_user_by_id(animal_data.chipperId)
     if not chipper:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -166,6 +144,154 @@ def update_animal(
     )
 
 
+@router.delete("/{animalId}", response_model=None)
+def delete_animal(
+    animalId: int = Path(..., ge=1),
+    authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+):
+    animal_crud = AnimalCRUD(authorize.db)
+    animal = animal_crud.get_animal_by_id(animalId)
+    if not animal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Животное с id {animalId} не найдено"
+        )
+    locations_count = animal_crud.get_animal_locations_count(animalId)
+    if locations_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Животное покинуло локацию чипирования, при этом есть другие посещенные точки")
+    return animal_crud.delete(animal)
+
+@router.post("/{animalId}/locations/{pointId}", response_model=AnimalLocation, status_code=status.HTTP_201_CREATED)
+def add_animal_location(
+    animalId: int = Path(..., ge=1),
+    pointId: int = Path(..., ge=1),
+    authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+):
+    animal_crud = AnimalCRUD(authorize.db)
+    animal = animal_crud.get_animal_by_id(animalId)
+    if not animal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Животное с id {animalId} не найдено"
+        )
+    if animal.lifeStatus == AnimalAlive.DEAD:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Животное с id {animalId} мертво"
+        )
+    point = PointCRUD(authorize.db).get_point_by_id(pointId)
+    if not point:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Точка с id {pointId} не найдена"
+        )
+    last_location = animal_crud.get_last_animal_location(animalId)
+    if not last_location and animal.chippingLocationId == pointId:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Нельзя добавить точку локации, равную точке чипирования"
+        )
+    if last_location and last_location.locationPointId == pointId:
+        locations_count = animal_crud.get_animal_locations_count(
+            animalId=animalId)
+        if locations_count == 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Животное находится в точке чипирования и никуда не перемещалось"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Попытка добавить точку локации, в которой уже находится животное"
+        )
+    animal_location = animal_crud.add_animal_location(
+        animalId=animalId,
+        locationPointId=pointId
+    )
+    return animal_location
+
+
+@router.put("/{animalId}/types", response_model=Animal)
+def update_animal_type(
+    types: UpdateAnimalType,
+    animalId: int = Path(..., ge=1),
+    authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+):
+    animal_crud = AnimalCRUD(authorize.db)
+    animal = animal_crud.get_animal_by_id(animalId)
+    if not animal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Животное с id {animalId} не найдено"
+        )
+    types_crud = AnimalTypeCRUD(db)
+    new_type = types_crud.get_animal_type_by_id(types.newTypeId)
+    if not new_type:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Тип с id {types.newTypeId} не найден"
+        )
+    old_type = types_crud.get_animal_type_by_id(types.oldTypeId)
+    if not old_type:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Тип с id {types.oldTypeId} не найден"
+        )
+    current_animal_types = types_crud.get_animal_types_by_animal_id(animalId)
+    if old_type not in current_animal_types:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Животное с id {animalId} не имеет типа с id {types.oldTypeId}"
+        )
+    if new_type in current_animal_types:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Животное с id {animalId} уже имеет тип с id {types.newTypeId}"
+        )
+    animal = animal_crud.update_animal_type(
+        new=new_type,
+        old=old_type,
+        animalId=animalId
+    )
+    return animal
+
+@router.delete("/{animalId}/types/{typeId}", response_model=Animal)
+def delete_animal_type(
+    animalId: int = Path(..., ge=1),
+    typeId: int = Path(..., ge=1),
+    authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+):
+    animal_crud = AnimalCRUD(authorize.db)
+    animal = animal_crud.get_animal_by_id(animalId)
+    if not animal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Животное с id {animalId} не найдено"
+        )
+    types_crud = AnimalTypeCRUD(authorize.db)
+    db_type = types_crud.get_animal_type_by_id(typeId)
+    if not db_type:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Тип с id {typeId} не найден"
+        )
+    animal_types = types_crud.get_animal_types_by_animal_id(animalId)
+    if db_type not in animal_types:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Животное с id {animalId} не имеет типа с id {typeId}"
+        )
+    types_count = animal_crud.get_animal_types_count(animalId)
+    if types_count == 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"У животного только один тип и это тип с typeId {typeId}"
+        )
+    return animal_crud.delete_animal_type(
+        animalId=animalId,
+        typeId=typeId
+    )
 @router.get("/{animalId}/locations", response_model=List[AnimalLocation])
 def get_animal_locations(
     animalId: int = Path(..., ge=1),
@@ -173,13 +299,9 @@ def get_animal_locations(
     endDateTime: ISODateTime = None,
     from_: int = Query(0, ge=1, alias="from"),
     size: int = Query(10, ge=1),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(test_if_header_exsits=True))
+    authorize: Authorize = Depends(Authorize()),
 ):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
+    animal_crud = AnimalCRUD(authorize.db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
@@ -196,25 +318,53 @@ def get_animal_locations(
 
     return locations
 
-
-@router.put("/{animalId}/locations", response_model=AnimalLocation)
-def update_animal_location(
-    locationData: UpdateAnimalLocation,
+@router.post("/{animalId}/types/{typeId}", response_model=Animal, status_code=status.HTTP_201_CREATED)
+def add_animal_type(
     animalId: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(error_on_unauthorized=False))
+    typeId: int = Path(..., ge=1),
+    authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
 ):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
+    animal_crud = AnimalCRUD(authorize.db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Животное с id {animalId} не найдено"
         )
-    new_location_point = PointCRUD(db).get_point_by_id(
+    types_crud = AnimalTypeCRUD(authorize.db)
+    db_type = types_crud.get_animal_type_by_id(typeId)
+    if not db_type:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Тип с id {typeId} не найден"
+        )
+    animal_types = types_crud.get_animal_types_by_animal_id(animalId)
+    if db_type in animal_types:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Животное с id {animalId} уже имеет тип с id {typeId}"
+        )
+    animal_type = animal_crud.add_animal_type(
+        animalId=animalId,
+        typeId=typeId
+    )
+    return animal_type.animal
+
+
+@router.put("/{animalId}/locations", response_model=AnimalLocation)
+def update_animal_location(
+    locationData: UpdateAnimalLocation,
+    animalId: int = Path(..., ge=1),
+    authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+):
+    animal_crud = AnimalCRUD(authorize.db)
+    animal = animal_crud.get_animal_by_id(animalId)
+    if not animal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Животное с id {animalId} не найдено"
+        )
+    new_location_point = PointCRUD(authorize.db).get_point_by_id(
         locationData.locationPointId)
     if not new_location_point:
         raise HTTPException(
@@ -261,198 +411,13 @@ def update_animal_location(
     )
 
 
-@router.post("/{animalId}/locations/{pointId}", response_model=AnimalLocation, status_code=status.HTTP_201_CREATED)
-def add_animal_location(
-    animalId: int = Path(..., ge=1),
-    pointId: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(error_on_unauthorized=False))
-):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
-    animal = animal_crud.get_animal_by_id(animalId)
-    if not animal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Животное с id {animalId} не найдено"
-        )
-    if animal.lifeStatus == AnimalAlive.DEAD:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Животное с id {animalId} мертво"
-        )
-    point = PointCRUD(db).get_point_by_id(pointId)
-    if not point:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Точка с id {pointId} не найдена"
-        )
-    last_location = animal_crud.get_last_animal_location(animalId)
-    if not last_location and animal.chippingLocationId == pointId:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Нельзя добавить точку локации, равную точке чипирования"
-        )
-    if last_location and last_location.locationPointId == pointId:
-        locations_count = animal_crud.get_animal_locations_count(
-            animalId=animalId)
-        if locations_count == 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Животное находится в точке чипирования и никуда не перемещалось"
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Попытка добавить точку локации, в которой уже находится животное"
-        )
-    animal_location = animal_crud.add_animal_location(
-        animalId=animalId,
-        locationPointId=pointId
-    )
-    return animal_location
-
-
-@router.post("/{animalId}/types/{typeId}", response_model=Animal, status_code=status.HTTP_201_CREATED)
-def add_animal_type(
-    animalId: int = Path(..., ge=1),
-    typeId: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(error_on_unauthorized=False))
-):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
-    animal = animal_crud.get_animal_by_id(animalId)
-    if not animal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Животное с id {animalId} не найдено"
-        )
-    types_crud = AnimalTypeCRUD(db)
-    type = types_crud.get_animal_type_by_id(typeId)
-    if not type:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Тип с id {typeId} не найден"
-        )
-    animal_types = types_crud.get_animal_types_by_animal_id(animalId)
-    if type in animal_types:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Животное с id {animalId} уже имеет тип с id {typeId}"
-        )
-    animal_type = animal_crud.add_animal_type(
-        animalId=animalId,
-        typeId=typeId
-    )
-    return animal_type.animal
-
-
-@router.put("/{animalId}/types", response_model=Animal)
-def update_animal_type(
-    types: UpdateAnimalType,
-    animalId: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(error_on_unauthorized=False))
-):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
-    animal = animal_crud.get_animal_by_id(animalId)
-    if not animal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Животное с id {animalId} не найдено"
-        )
-    types_crud = AnimalTypeCRUD(db)
-    new_type = types_crud.get_animal_type_by_id(types.newTypeId)
-    if not new_type:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Тип с id {types.newTypeId} не найден"
-        )
-    old_type = types_crud.get_animal_type_by_id(types.oldTypeId)
-    if not old_type:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Тип с id {types.oldTypeId} не найден"
-        )
-    current_animal_types = types_crud.get_animal_types_by_animal_id(animalId)
-    if old_type not in current_animal_types:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Животное с id {animalId} не имеет типа с id {types.oldTypeId}"
-        )
-    if new_type in current_animal_types:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Животное с id {animalId} уже имеет тип с id {types.newTypeId}"
-        )
-    animal = animal_crud.update_animal_type(
-        new=new_type,
-        old=old_type,
-        animalId=animalId
-    )
-    return animal
-
-
-@router.delete("/{animalId}/types/{typeId}", response_model=Animal)
-def delete_animal_type(
-    animalId: int = Path(..., ge=1),
-    typeId: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(error_on_unauthorized=False))
-):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
-    animal = animal_crud.get_animal_by_id(animalId)
-    if not animal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Животное с id {animalId} не найдено"
-        )
-    types_crud = AnimalTypeCRUD(db)
-    type = types_crud.get_animal_type_by_id(typeId)
-    if not type:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Тип с id {typeId} не найден"
-        )
-    animal_types = types_crud.get_animal_types_by_animal_id(animalId)
-    if type not in animal_types:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Животное с id {animalId} не имеет типа с id {typeId}"
-        )
-    types_count = animal_crud.get_animal_types_count(animalId)
-    if types_count == 1:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"У животного только один тип и это тип с typeId {typeId}"
-        )
-    return animal_crud.delete_animal_type(
-        animalId=animalId,
-        typeId=typeId
-    )
-
-
 @router.delete("/{animalId}/locations/{visitedPointId}", response_model=None)
 def delete_animal_location(
     animalId: int = Path(..., ge=1),
     visitedPointId: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(error_on_unauthorized=False))
+    authorize: Authorize = Depends(Authorize(is_admin=True)),
 ):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
+    animal_crud = AnimalCRUD(authorize.db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
@@ -479,25 +444,4 @@ def delete_animal_location(
     animal_crud.delete(visited_point)
 
 
-@router.delete("/{animalId}", response_model=None)
-def delete_animal(
-    animalId: int = Path(..., ge=1),
-    db: Session = Depends(get_db),
-    authorized_user=Depends(Authorize(error_on_unauthorized=False))
-):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
-    animal_crud = AnimalCRUD(db)
-    animal = animal_crud.get_animal_by_id(animalId)
-    if not animal:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Животное с id {animalId} не найдено"
-        )
-    locations_count = animal_crud.get_animal_locations_count(animalId)
-    if locations_count > 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Животное покинуло локацию чипирования, при этом есть другие посещенные точки")
-    return animal_crud.delete(animal)
+
