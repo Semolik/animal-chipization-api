@@ -1,3 +1,5 @@
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.db.db import get_db
 from app.core.auth import Authorize
@@ -12,15 +14,17 @@ router = APIRouter(tags=["Авторизация"])
 @router.post("/registration", response_model=User, status_code=status.HTTP_201_CREATED)
 def registration(
     user: Register,
-    authorize: Authorize = Depends(Authorize(required=False))
+    authorize: Authorize = Depends(Authorize(required=False)),
+    db: Session = Depends(get_db)
 ):
     if authorize.current_user:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Пользователь уже авторизован")
-    user_crud = UserCRUD(authorize.db)
+    user_crud = UserCRUD(db)
     if user_crud.get_user_by_email(user.email):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Пользователь с таким email уже существует")
+    print("user", user)
     return user_crud.create_user(
         firstName=user.firstName,
         lastName=user.lastName,

@@ -1,5 +1,5 @@
 from typing import List
-from app.db.base import CRUDBase
+from app.crud.base import CRUDBase
 from app.models.user import User, UserRoles
 from app.models.animals import Animal
 from passlib.context import CryptContext
@@ -42,11 +42,12 @@ class UserCRUD(CRUDBase):
     def is_allow_delete(self, db_user: User) -> bool:
         return self.db.query(Animal).filter(Animal.chipperId == db_user.id).first() is None
 
-    def update_user(self, db_user: User, firstName: str, lastName: str, email: str, password: str) -> User:
+    def update_user(self, db_user: User, firstName: str, lastName: str, email: str, password: str, role: UserRoles) -> User:
         db_user.firstName = firstName
         db_user.lastName = lastName
         db_user.email = email
         db_user.hashed_password = self.get_password_hash(password)
+        db_user.role = role
         return self.update(db_user)
 
     def login(self, email: str, password: str) -> User | None:

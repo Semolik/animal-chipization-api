@@ -1,5 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Path
+from sqlalchemy.orm import Session
+
 from app.core.auth import Authorize
+from app.db.db import get_db
 from app.schemas.locations import Location, LocationBase
 from app.crud.crud_point import PointCRUD
 
@@ -12,8 +15,9 @@ router = APIRouter(
 def get_location_by_id_(
     pointId: int = Path(..., gt=0),
     authorize: Authorize = Depends(Authorize()),
+    db: Session = Depends(get_db)
 ):
-    point = PointCRUD(authorize.db).get_point_by_id(pointId)
+    point = PointCRUD(db).get_point_by_id(pointId)
     if not point:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -27,8 +31,9 @@ def get_location_by_id_(
 def create_location(
     location: LocationBase,
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    point_crud = PointCRUD(authorize.db)
+    point_crud = PointCRUD(db)
     if point_crud.get_point_by_coordinates(
         latitude=location.latitude,
         longitude=location.longitude
@@ -48,8 +53,9 @@ def update_location(
     location: LocationBase,
     pointId: int = Path(..., gt=0),
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    point_crud = PointCRUD(authorize.db)
+    point_crud = PointCRUD(db)
     point = point_crud.get_point_by_id(pointId)
     if not point:
         raise HTTPException(
@@ -66,7 +72,7 @@ def update_location(
             detail=f"Точка с такими координатами уже существует"
         )
     return point_crud.update_point(
-        point=point,
+        db_point=point,
         latitude=location.latitude,
         longitude=location.longitude
     )
@@ -76,8 +82,9 @@ def update_location(
 def delete_location(
     pointId: int = Path(..., gt=0),
     authorize: Authorize = Depends(Authorize(is_admin=True)),
+    db: Session = Depends(get_db)
 ):
-    point_crud = PointCRUD(authorize.db)
+    point_crud = PointCRUD(db)
     point = point_crud.get_point_by_id(pointId)
     if not point:
         raise HTTPException(

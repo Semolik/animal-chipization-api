@@ -3,7 +3,6 @@ from app.crud.crud_point import PointCRUD
 from app.db.db import get_db
 from app.core.auth import Authorize
 from app.schemas.locations import Location, LocationBase
-from app.models.user import User as UserModel
 from sqlalchemy.orm import Session
 
 router = APIRouter(tags=["Локации животных"], prefix="/locations")
@@ -13,8 +12,9 @@ router = APIRouter(tags=["Локации животных"], prefix="/locations"
 def create_location(
     location_data: LocationBase,
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    points_crud = PointCRUD(authorize.db)
+    points_crud = PointCRUD(db)
     if points_crud.get_point_by_coordinates(latitude=location_data.latitude, longitude=location_data.longitude):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Точка с такими координатами уже существует")
@@ -28,8 +28,9 @@ def create_location(
 def get_locations(
     pointId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize()),
+    db: Session = Depends(get_db)
 ):
-    point = PointCRUD(authorize.db).get_point_by_id(pointId)
+    point = PointCRUD(db).get_point_by_id(pointId)
     if not point:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Точка не найдена")
@@ -41,8 +42,9 @@ def update_location(
     location_data: LocationBase,
     pointId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    points_crud = PointCRUD(authorize.db)
+    points_crud = PointCRUD(db)
     point = points_crud.get_point_by_id(pointId)
     if not point:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
@@ -69,8 +71,9 @@ def update_location(
 def delete_location(
     pointId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True)),
+    db: Session = Depends(get_db)
 ):
-    points_crud = PointCRUD(authorize.db)
+    points_crud = PointCRUD(db)
     point = points_crud.get_point_by_id(pointId)
     if not point:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,

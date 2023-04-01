@@ -1,5 +1,5 @@
 from app.db.base_class import Base
-from sqlalchemy import Column, Integer, FLOAT, String, Enum, ForeignKey, DateTime, func, event
+from sqlalchemy import Column, Integer, FLOAT, String, Enum, ForeignKey, DateTime, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 

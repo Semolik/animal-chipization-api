@@ -13,8 +13,9 @@ router = APIRouter(tags=["Типы животных"], prefix="/types")
 def create_animal_type(
     animal_type_data: AnimalTypeBase,
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    animal_type_crud = AnimalTypeCRUD(authorize.db)
+    animal_type_crud = AnimalTypeCRUD(db)
     animal_type = animal_type_crud.get_animal_type_by_name(
         animal_type_data.type)
     if animal_type:
@@ -30,8 +31,9 @@ def update_animal_type(
     animal_type_data: AnimalTypeBase,
     typeId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    animal_type_crud = AnimalTypeCRUD(authorize.db)
+    animal_type_crud = AnimalTypeCRUD(db)
     animal_type = animal_type_crud.get_animal_type_by_id(typeId)
     if not animal_type:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
@@ -51,12 +53,8 @@ def update_animal_type(
 def delete_animal_type(
     typeId: int = Path(..., ge=1),
     db: Session = Depends(get_db),
-    authorized_user: UserModel = Depends(
-        Authorize(required=False))
+    authorize: Authorize = Depends(Authorize(is_admin=True)),
 ):
-    if not authorized_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Необходима авторизация")
     animal_type_crud = AnimalTypeCRUD(db)
     animal_type = animal_type_crud.get_animal_type_by_id(typeId)
     if not animal_type:
@@ -72,8 +70,9 @@ def delete_animal_type(
 def get_animal_type(
     typeId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize()),
+    db: Session = Depends(get_db)
 ):
-    animal_type = AnimalTypeCRUD(authorize.db).get_animal_type_by_id(typeId)
+    animal_type = AnimalTypeCRUD(db).get_animal_type_by_id(typeId)
     if not animal_type:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Тип животного не найден")

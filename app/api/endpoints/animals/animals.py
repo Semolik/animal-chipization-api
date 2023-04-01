@@ -1,9 +1,12 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from sqlalchemy.orm import Session
+
 from app.crud.crud_animal import AnimalCRUD
 from app.crud.crud_point import PointCRUD
 from app.crud.crud_types import AnimalTypeCRUD
 from app.core.auth import Authorize
+from app.db.db import get_db
 from app.models.animals import AnimalAlive, AnimalGender
 from app.schemas.animals import Animal, AnimalCreate, AnimalLocation, UpdateAnimal, UpdateAnimalLocation, UpdateAnimalType
 from app.schemas.types import ISODateTime
@@ -15,16 +18,17 @@ router = APIRouter(tags=["Животные"], prefix="/animals")
 def create_animal(
     animal: AnimalCreate,
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db),
 ):
-    animal_crud = AnimalCRUD(authorize.db)
-    chipper = UserCRUD(authorize.db).get_user_by_id(animal.chipperId)
+    animal_crud = AnimalCRUD(db)
+    chipper = UserCRUD(db).get_user_by_id(animal.chipperId)
     if not chipper:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Аккаунт с id {animal.chipperId} не найден"
         )
     chipping_location = PointCRUD(
-        authorize.db).get_point_by_id(animal.chippingLocationId)
+        db).get_point_by_id(animal.chippingLocationId)
     if not chipping_location:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -32,7 +36,7 @@ def create_animal(
         )
     types = []
     for animal_type_id in animal.animalTypes:
-        animal_type = AnimalTypeCRUD(authorize.db).get_animal_type_by_id(animal_type_id)
+        animal_type = AnimalTypeCRUD(db).get_animal_type_by_id(animal_type_id)
         if not animal_type:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -66,8 +70,9 @@ def search_animals(
     from_: int = Query(0, ge=0, alias="from"),
     size: int = Query(10, gt=0),
     authorize: Authorize = Depends(Authorize()),
+    db: Session = Depends(get_db)
 ):
-    animals_crud = AnimalCRUD(authorize.db)
+    animals_crud = AnimalCRUD(db)
     animals = animals_crud.search_animals(
         startDateTime=startDateTime,
         endDateTime=endDateTime,
@@ -84,8 +89,9 @@ def search_animals(
 def get_animal(
     animalId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize()),
+    db: Session = Depends(get_db)
 ):
-    animal_crud = AnimalCRUD(authorize.db)
+    animal_crud = AnimalCRUD(db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
@@ -100,15 +106,16 @@ def update_animal(
     animal_data: UpdateAnimal,
     animalId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    animal_crud = AnimalCRUD(authorize.db)
+    animal_crud = AnimalCRUD(db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Животное с id {animalId} не найдено"
         )
-    chipper = UserCRUD(authorize.db).get_user_by_id(animal_data.chipperId)
+    chipper = UserCRUD(db).get_user_by_id(animal_data.chipperId)
     if not chipper:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -148,8 +155,9 @@ def update_animal(
 def delete_animal(
     animalId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    animal_crud = AnimalCRUD(authorize.db)
+    animal_crud = AnimalCRUD(db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
@@ -168,8 +176,9 @@ def add_animal_location(
     animalId: int = Path(..., ge=1),
     pointId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    animal_crud = AnimalCRUD(authorize.db)
+    animal_crud = AnimalCRUD(db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
@@ -181,7 +190,7 @@ def add_animal_location(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Животное с id {animalId} мертво"
         )
-    point = PointCRUD(authorize.db).get_point_by_id(pointId)
+    point = PointCRUD(db).get_point_by_id(pointId)
     if not point:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -217,8 +226,9 @@ def update_animal_type(
     types: UpdateAnimalType,
     animalId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    animal_crud = AnimalCRUD(authorize.db)
+    animal_crud = AnimalCRUD(db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
@@ -261,15 +271,16 @@ def delete_animal_type(
     animalId: int = Path(..., ge=1),
     typeId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    animal_crud = AnimalCRUD(authorize.db)
+    animal_crud = AnimalCRUD(db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Животное с id {animalId} не найдено"
         )
-    types_crud = AnimalTypeCRUD(authorize.db)
+    types_crud = AnimalTypeCRUD(db)
     db_type = types_crud.get_animal_type_by_id(typeId)
     if not db_type:
         raise HTTPException(
@@ -292,16 +303,19 @@ def delete_animal_type(
         animalId=animalId,
         typeId=typeId
     )
+
+
 @router.get("/{animalId}/locations", response_model=List[AnimalLocation])
 def get_animal_locations(
     animalId: int = Path(..., ge=1),
     startDateTime: ISODateTime = None,
     endDateTime: ISODateTime = None,
-    from_: int = Query(0, ge=1, alias="from"),
+    from_: int = Query(0, ge=0, alias="from"),
     size: int = Query(10, ge=1),
     authorize: Authorize = Depends(Authorize()),
+    db: Session = Depends(get_db)
 ):
-    animal_crud = AnimalCRUD(authorize.db)
+    animal_crud = AnimalCRUD(db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
@@ -318,20 +332,22 @@ def get_animal_locations(
 
     return locations
 
+
 @router.post("/{animalId}/types/{typeId}", response_model=Animal, status_code=status.HTTP_201_CREATED)
 def add_animal_type(
     animalId: int = Path(..., ge=1),
     typeId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    animal_crud = AnimalCRUD(authorize.db)
+    animal_crud = AnimalCRUD(db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Животное с id {animalId} не найдено"
         )
-    types_crud = AnimalTypeCRUD(authorize.db)
+    types_crud = AnimalTypeCRUD(db)
     db_type = types_crud.get_animal_type_by_id(typeId)
     if not db_type:
         raise HTTPException(
@@ -356,15 +372,16 @@ def update_animal_location(
     locationData: UpdateAnimalLocation,
     animalId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True, is_chipper=True)),
+    db: Session = Depends(get_db)
 ):
-    animal_crud = AnimalCRUD(authorize.db)
+    animal_crud = AnimalCRUD(db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Животное с id {animalId} не найдено"
         )
-    new_location_point = PointCRUD(authorize.db).get_point_by_id(
+    new_location_point = PointCRUD(db).get_point_by_id(
         locationData.locationPointId)
     if not new_location_point:
         raise HTTPException(
@@ -416,8 +433,9 @@ def delete_animal_location(
     animalId: int = Path(..., ge=1),
     visitedPointId: int = Path(..., ge=1),
     authorize: Authorize = Depends(Authorize(is_admin=True)),
+    db: Session = Depends(get_db)
 ):
-    animal_crud = AnimalCRUD(authorize.db)
+    animal_crud = AnimalCRUD(db)
     animal = animal_crud.get_animal_by_id(animalId)
     if not animal:
         raise HTTPException(

@@ -1,4 +1,4 @@
-from app.db.base import CRUDBase
+from app.crud.base import CRUDBase
 from app.models.points import Point
 from app.models.animals import Animal, AnimalLocation
 

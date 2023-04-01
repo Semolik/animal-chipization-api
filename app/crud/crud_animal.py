@@ -1,5 +1,5 @@
 from datetime import datetime
-from app.db.base import CRUDBase
+from app.crud.base import CRUDBase
 from app.models.animals import AnimalAlive, AnimalGender, AnimalType, Animal, AnimalTypeAnimal, AnimalLocation
 from app.models.points import Point
 
