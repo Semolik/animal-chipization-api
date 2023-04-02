@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi.responses import HTMLResponse
+from app.core.geohash import Geohash
 from app.crud.crud_point import PointCRUD
 from app.db.db import get_db
 from app.core.auth import Authorize
 from app.schemas.locations import Location, LocationBase
 from sqlalchemy.orm import Session
-
 router = APIRouter(tags=["Локации животных"], prefix="/locations")
 
 
@@ -22,6 +23,46 @@ def create_location(
         latitude=location_data.latitude,
         longitude=location_data.longitude,
     )
+
+
+@router.get("")
+def get_point_id_by_coordinates(
+    coordinates: LocationBase = Depends(),
+    authorize: Authorize = Depends(Authorize()),
+    db: Session = Depends(get_db)
+):
+
+    point = PointCRUD(db).get_point_by_coordinates(
+        latitude=coordinates.latitude,
+        longitude=coordinates.longitude
+    )
+    if not point:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Точка не найдена")
+    return point.id
+
+@router.get("/geohash", response_class=HTMLResponse)
+def get_geohash(
+    coordinates: LocationBase = Depends(),
+    authorize: Authorize = Depends(Authorize())
+):
+    return Geohash(latitude=coordinates.latitude, longitude=coordinates.longitude).encode()
+
+
+@router.get("/geohashv2")
+def get_geohashv2(
+    coordinates: LocationBase = Depends(),
+    authorize: Authorize = Depends(Authorize())
+):
+    return Geohash(latitude=coordinates.latitude, longitude=coordinates.longitude).encode(version=2)
+
+
+@router.get("/geohashv3")
+def get_geohashv3(
+    coordinates: LocationBase = Depends(),
+    authorize: Authorize = Depends(Authorize())
+):
+    return Geohash(latitude=coordinates.latitude, longitude=coordinates.longitude).encode(version=3)
 
 
 @router.get("/{pointId}", response_model=Location)

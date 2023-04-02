@@ -40,4 +40,4 @@ services:
       - api
     environment:
       SERVER_URL: http://api:8000
-      STAGE: 1
+      STAGE: all

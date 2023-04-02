@@ -3,9 +3,11 @@ from app.core.areas import AreaValidator
 from app.db.db import get_db
 from app.core.auth import Authorize
 from sqlalchemy.orm import Session
-from app.schemas.areas import Area, CreateArea
+from app.schemas.areas import Area, CreateArea, AreaAnalytics
 from app.crud.crud_point import PointCRUD
 from app.crud.crud_area import AreaCRUD
+from app.schemas.types import ISO8601DatePattern
+
 router = APIRouter(tags=["Зоны"], prefix="/areas")
 
 
@@ -44,6 +46,7 @@ def create_area(
         areaPoints=db_points
     )
 
+
 @router.get("/{area_id}", response_model=Area)
 def get_area(
     area_id: int = Path(..., ge=1),
@@ -55,11 +58,7 @@ def get_area(
     if area is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Зона не найдена")
-    return Area(
-        id=area.id,
-        name=area.name,
-        areaPoints=area.areaPoints
-    )
+    return area
 
 @router.put("/{area_id}", response_model=Area)
 def update_area(
@@ -94,6 +93,7 @@ def update_area(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Зона с такими точками уже существует")
     db.commit()
+    area = area_crud.update_area(db_area=area, name=area_data.name, points=db_points)
     return Area(
         id=area.id,
         name=area.name,
@@ -112,3 +112,30 @@ def delete_area(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Зона не найдена")
     area_crud.delete(area)
+
+@router.get("/{area_id}/analytics", response_model=AreaAnalytics)
+def get_area_analytics(
+    startDate:ISO8601DatePattern,
+    endDate:ISO8601DatePattern,
+    area_id: int = Path(..., ge=1),
+
+    authorize: Authorize = Depends(Authorize()),
+    db: Session = Depends(get_db)
+):
+    area_crud = AreaCRUD(db)
+    area = area_crud.get_area(area_id=area_id)
+    if area is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Зона не найдена")
+    analytics = area_crud.get_types_analytics(
+        area_id=area_id,
+        startDate=startDate,
+        endDate=endDate
+    )
+    return AreaAnalytics(
+        animalsAnalytics=analytics,
+        totalQuantityAnimals=sum(animal_data.quantityAnimals for animal_data in analytics),
+        totalAnimalsArrived=sum(animal_data.animalsArrived for animal_data in analytics),
+        totalAnimalsGone = sum(animal_data.animalsGone for animal_data in analytics)
+    )
+
