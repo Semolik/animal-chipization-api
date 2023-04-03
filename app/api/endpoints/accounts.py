@@ -35,6 +35,7 @@ def get_account(
     authorize: Authorize = Depends(Authorize()),
     db: Session = Depends(get_db)
 ):
+    print("Проверка")
     if authorize.current_user_id != accountId and not authorize.current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Нет доступа к аккаунту")

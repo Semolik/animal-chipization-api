@@ -51,8 +51,11 @@ class Authorize:
         self.current_user = db_user
         self.current_user_id = db_user.id
         if db_user.role not in self.accepted_roles:
+            if not self.required:
+                return self
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                                 detail="Недостаточно прав")
+        print("Пользователь авторизован")
         return self
 
 

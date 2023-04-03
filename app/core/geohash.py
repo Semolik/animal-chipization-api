@@ -8,16 +8,7 @@ class Geohash:
         self.latitude_interval = [-90.0, 90.0]
         self.longitude_interval = [-180.0, 180.0]
 
-    def encode(self, version=1):
 
-        if version == 1:
-            return self._encode_v1()
-        elif version == 2:
-            return self._encode_v2()
-        elif version == 3:
-            return self._encode_v3()
-        else:
-            raise ValueError("Unsupported version number")
 
     def _encode_v1(self, bit_length=30):
         # Define the base32 encoding scheme
