@@ -55,7 +55,6 @@ class Authorize:
                 return self
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                                 detail="Недостаточно прав")
-        print("Пользователь авторизован")
         return self
 
 

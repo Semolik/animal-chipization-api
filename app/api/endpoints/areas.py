@@ -25,25 +25,15 @@ def create_area(
     if area_with_new_name is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Зона с таким именем уже существует")
-    point_crud = PointCRUD(db)
-    db_points = []
-    for point in area_data.areaPoints:
-        db_point = point_crud.get_point_by_coordinates(latitude=point.latitude, longitude=point.longitude)
-        if db_point is None:
-            db_point = point_crud.create_point(latitude=point.latitude, longitude=point.longitude, only_add=True)
-        db_points.append(db_point)
-    db.flush()
-    area = area_crud.has_area_with_points(points=db_points)
+    area = area_crud.area_by_points(points=area_data.areaPoints)
     if area is not None:
-        db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Зона с такими точками уже существует")
-    db.commit()
-    area = area_crud.create_area(name=area_data.name, points=db_points)
+    area = area_crud.create_area(name=area_data.name, points=area_data.areaPoints)
     return Area(
         id=area.id,
         name=area.name,
-        areaPoints=db_points
+        areaPoints=area.areaPoints
     )
 
 
@@ -87,7 +77,7 @@ def update_area(
             db_point = point_crud.create_point(latitude=point.latitude, longitude=point.longitude, only_add=True)
         db_points.append(db_point)
     db.flush()
-    area_with_points = area_crud.has_area_with_points(points=db_points)
+    area_with_points = area_crud.area_by_points(points=db_points)
     if area_with_points is not None and area_with_points.id != area_id:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,

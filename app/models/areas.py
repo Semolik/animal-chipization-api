@@ -1,5 +1,5 @@
 from app.db.base_class import Base
-from sqlalchemy import Column, Integer,  ForeignKey, String
+from sqlalchemy import Column, Integer,  ForeignKey, String, Float
 from sqlalchemy.orm import relationship
 
 
@@ -11,11 +11,18 @@ class Area(Base):
         index=True
     )
     name = Column(String, nullable=False)
-    areaPoints = relationship("Point", secondary="area_point")
+    areaPoints = relationship("AreaPoint", primaryjoin="Area.id == AreaPoint.area_id", cascade="all, delete-orphan")
+
 
 class AreaPoint(Base):
     __tablename__ = "area_point"
-    area_id = Column(Integer, ForeignKey('areas.id', ondelete="CASCADE"), primary_key=True)
-    point_id = Column(Integer, ForeignKey('point.id'), primary_key=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+    area_id = Column(Integer, ForeignKey('areas.id'), nullable=False)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
 
 
