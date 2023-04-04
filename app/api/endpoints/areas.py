@@ -17,19 +17,22 @@ def create_area(
     authorize: Authorize = Depends(Authorize(is_admin=True)),
     db: Session = Depends(get_db)
 ):
-    if not AreaValidator(area_data.areaPoints).validate():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Неверные координаты")
     area_crud = AreaCRUD(db)
-    print(area_crud.check_area_intersection(area_data.areaPoints))
     area_with_new_name = area_crud.get_area_by_name(name=area_data.name)
     if area_with_new_name is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Зона с таким именем уже существует")
+    if not AreaValidator(area_data.areaPoints).validate():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Неверные координаты")
     area = area_crud.area_by_points(points=area_data.areaPoints)
     if area is not None:
+       raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                           detail="Зона с такими точками уже существует")
+    if area_crud.check_area_intersection(area_data.areaPoints):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail="Зона с такими точками уже существует")
+                            detail="Зона пересекается с другой зоной")
+
     area = area_crud.create_area(name=area_data.name, points=area_data.areaPoints)
     return Area(
         id=area.id,
@@ -70,25 +73,19 @@ def update_area(
     if area_with_new_name is not None and area_with_new_name.id != area_id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Зона с таким именем уже существует")
-    point_crud = PointCRUD(db)
-    db_points = []
-    for point in area_data.areaPoints:
-        db_point = point_crud.get_point_by_coordinates(latitude=point.latitude, longitude=point.longitude)
-        if db_point is None:
-            db_point = point_crud.create_point(latitude=point.latitude, longitude=point.longitude, only_add=True)
-        db_points.append(db_point)
-    db.flush()
-    area_with_points = area_crud.area_by_points(points=db_points)
+    intersection = area_crud.check_area_intersection(area_data.areaPoints)
+    if intersection and intersection.id != area_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Зона пересекается с другой зоной")
+    area_with_points = area_crud.area_by_points(points=area_data.areaPoints)
     if area_with_points is not None and area_with_points.id != area_id:
-        db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Зона с такими точками уже существует")
-    db.commit()
-    area = area_crud.update_area(db_area=area, name=area_data.name, points=db_points)
+    area = area_crud.update_area(db_area=area, name=area_data.name, points=area_data.areaPoints)
     return Area(
         id=area.id,
         name=area.name,
-        areaPoints=db_points
+        areaPoints=area.areaPoints
     )
 
 @router.delete("/{area_id}", response_model=None)

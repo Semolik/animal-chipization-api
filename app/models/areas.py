@@ -1,6 +1,8 @@
+from sqlalchemy.ext.hybrid import hybrid_property
+
 from app.db.base_class import Base
 from sqlalchemy import Column, Integer,  ForeignKey, String, Float
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, object_session, events
 
 
 class Area(Base):
@@ -21,14 +23,12 @@ class AreaPoint(Base):
         primary_key=True,
         index=True
     )
-    area_id = Column(Integer, ForeignKey('areas.id'), nullable=False)
+    area_id = Column(Integer, ForeignKey('areas.id', ondelete='CASCADE'), nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
-    next_id = Column(Integer, ForeignKey('area_point.id'), nullable=True)
-    next = relationship("AreaPoint",
-                        primaryjoin="AreaPoint.next_id == AreaPoint.id",
+    next_id = Column(Integer, ForeignKey('area_point.id', ondelete='SET NULL'), nullable=True)
 
-                        uselist=False,
-                        )
+
+
 
 

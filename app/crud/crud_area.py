@@ -35,52 +35,73 @@ class AreaCRUD(CRUDBase):
         return self.create_area_points(db_area, points)
 
     def area_by_points(self, points: list[LocationBase]) -> Area | None:
-        '''Возвращает зону, в которой находятся все точки'''
-        latitudes = [point.latitude for point in points]
-        longitudes = [point.longitude for point in points]
-        area = self.db.query(Area).join(AreaPoint).filter(
-            AreaPoint.area_id == Area.id,
-            AreaPoint.latitude.in_(latitudes),
-            AreaPoint.longitude.in_(longitudes)
-        ).first()
-        return area
-
-    def check_area_intersection(self, points: list[LocationBase]):
-        # Запрос на поиск пересечений существующих зон с новой зоной
+        '''Проверяет, существует ли зона, состоящая из таких точек'''
         query = (
             self.db.query(Area)
+            .join(AreaPoint)
             .filter(
-                or_(
-                or_(
-                    # Пересечение по точкам
-                    and_(
-                        AreaPoint.latitude == new_point.latitude,
-                        AreaPoint.longitude == new_point.longitude
-                    ),
-                    # Пересечение по линиям границ
-                    AreaPoint.next_id == None,
-                    # Граница новой зоны пересекает границу существующей зоны
-                    and_(
-                        AreaPoint.latitude <= new_point.latitude,
-                        AreaPoint.next.latitude > new_point.latitude,
-                        (new_point.longitude - AreaPoint.longitude) * (
-                                AreaPoint.next.latitude - AreaPoint.latitude
-                        ) >= (
-                                AreaPoint.next.longitude - AreaPoint.longitude
-                        ) * (
-                                new_point.latitude - AreaPoint.latitude
-                        )
-                    )
-                ) for new_point in points )
+                and_(
+                    AreaPoint.latitude == points[0].latitude,
+                    AreaPoint.longitude == points[0].longitude
+                )
             )
         )
-        return query.all()
+        for i in range(1, len(points)):
+            subquery = (
+                self.db.query(AreaPoint.area_id)
+                .filter(
+                    and_(
+                        AreaPoint.latitude == points[i].latitude,
+                        AreaPoint.longitude == points[i].longitude
+                    )
+                )
+            )
+            query = query.filter(Area.id.in_(subquery))
+        count = query.group_by(Area.id).having(func.count(Area.id) == len(points)).count()
+        return query.first() if count > 0 else None
 
-    def _get_next_area_point(self, point: AreaPoint) -> Union[AreaPoint, None]:
-        """
-        Возвращает следующую точку границы зоны
-        """
-        return AreaPoint.query.filter(AreaPoint.area_id == point.area_id, AreaPoint.id == point.next_id).one_or_none()
+    def check_area_intersection(self, points: list[LocationBase]) -> Area | None:
+        # Запрос на поиск пересечений существующих зон с новой зоной
+        subquery = (
+            self.db.query(AreaPoint.id.label("id"), AreaPoint.latitude.label("latitude"),
+                          AreaPoint.longitude.label("longitude"), AreaPoint.next_id.label("next_id"))
+            .subquery()
+        )
+        query = (
+            self.db.query(Area)
+            .join(AreaPoint)
+            .join(subquery, subquery.c.id == AreaPoint.id)
+            .filter(
+                or_(
+                    or_(
+                        # Пересечение по точкам
+                        and_(
+                            subquery.c.latitude == new_point.latitude,
+                            subquery.c.longitude == new_point.longitude
+                        ),
+                        # Пересечение по линиям границ
+                        AreaPoint.next_id == None,
+                        # Граница новой зоны пересекает границу существующей зоны
+                        and_(
+                            subquery.c.latitude <= new_point.latitude,
+                            AreaPoint.next_id == subquery.c.id,
+                            (new_point.longitude - subquery.c.longitude) * (
+                                    AreaPoint.latitude - subquery.c.latitude
+                            ) >= (
+                                    AreaPoint.longitude - subquery.c.longitude
+                            ) * (
+                                    new_point.latitude - subquery.c.latitude
+                            )
+                        ),
+
+
+                    ) for new_point in points
+                )# что добавить сюда чтобы проверить нахрдится ли зона внутри другой зоны?
+            )
+        )
+        return query.first()
+
+
     # def check_area_intersection(self, area_id: int, points: list[LocationBase]) -> bool:
     #     lines = (
     #         select(
