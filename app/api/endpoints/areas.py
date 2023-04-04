@@ -4,7 +4,6 @@ from app.db.db import get_db
 from app.core.auth import Authorize
 from sqlalchemy.orm import Session
 from app.schemas.areas import Area, CreateArea, AreaAnalytics
-from app.crud.crud_point import PointCRUD
 from app.crud.crud_area import AreaCRUD
 from app.schemas.types import ISO8601DatePattern
 
@@ -29,10 +28,12 @@ def create_area(
     if area is not None:
        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                            detail="Зона с такими точками уже существует")
-    if area_crud.check_area_intersection(area_data.areaPoints):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+    if area_crud.area_is_intersects(area_data.areaPoints):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Зона пересекается с другой зоной")
-
+    if area_crud.area_is_contained(area_data.areaPoints):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Зона вложена в другую зону")
     area = area_crud.create_area(name=area_data.name, points=area_data.areaPoints)
     return Area(
         id=area.id,
@@ -73,8 +74,7 @@ def update_area(
     if area_with_new_name is not None and area_with_new_name.id != area_id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Зона с таким именем уже существует")
-    intersection = area_crud.check_area_intersection(area_data.areaPoints)
-    if intersection and intersection.id != area_id:
+    if area_crud.area_is_intersects(area_data.areaPoints):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Зона пересекается с другой зоной")
     area_with_points = area_crud.area_by_points(points=area_data.areaPoints)
@@ -117,8 +117,8 @@ def get_area_analytics(
                             detail="Зона не найдена")
     analytics = area_crud.get_types_analytics(
         area_id=area_id,
-        startDate=startDate,
-        endDate=endDate
+        start_date=startDate,
+        end_date=endDate
     )
     return AreaAnalytics(
         animalsAnalytics=analytics,

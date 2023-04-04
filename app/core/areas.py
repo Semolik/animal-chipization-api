@@ -12,6 +12,10 @@ class AreaValidator:
         if len(self.points) < 3:
             print("len(self.points) < 3")
             return False
+        # если все точки на одной прямой
+        if self.are_all_points_on_line():
+            print("self.are_all_points_on_line()")
+            return False
 
         for i in range(1, len(self.points) - 1):
             for j in range(i + 1, len(self.points)):
@@ -31,16 +35,11 @@ class AreaValidator:
         if o1 != o2 and o3 != o4:
             return True
 
-        if o1 == 0 and self.on_segment(p1, q1, p2):
-            return True
-
-        if o2 == 0 and self.on_segment(p1, q1, q2):
-            return True
-
-        if o3 == 0 and self.on_segment(p2, q2, p1):
-            return True
-
-        if o4 == 0 and self.on_segment(p2, q2, q1):
+        # обработка случая, когда отрезки лежат на одной прямой
+        if o1 == 0 and self.on_segment(p1, q1, p2) or \
+           o2 == 0 and self.on_segment(p1, q1, q2) or \
+           o3 == 0 and self.on_segment(p2, q2, p1) or \
+           o4 == 0 and self.on_segment(p2, q2, q1):
             return True
 
         return False
@@ -57,3 +56,9 @@ class AreaValidator:
                 and max(p.latitude, q.latitude) >= r.latitude >= min(p.latitude, q.latitude):
             return True
         return False
+
+    def are_all_points_on_line(self):
+        for i in range(1, len(self.points) - 1):
+            if self.orientation(self.points[0], self.points[i], self.points[i + 1]) != 0:
+                return False
+        return True
