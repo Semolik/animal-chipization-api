@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import List
-from sqlalchemy import func, or_, and_, distinct, select, literal_column, case
+from typing import List, Union
+from sqlalchemy import func, or_, and_, distinct, select, literal_column, case, exists
 from sqlalchemy.orm import aliased
 
 from app.crud.base import CRUDBase
@@ -12,32 +12,27 @@ from app.schemas.locations import LocationBase
 class AreaCRUD(CRUDBase):
     def create_area(self, name: str, points: list[LocationBase]) -> Area:
         area = self.create(Area(name=name))
-        for point in points:
-            self.create(AreaPoint(area_id=area.id, latitude=point.latitude, longitude=point.longitude))
+        return self.create_area_points(area, points)
+    def create_area_points(self, area: Area, points: list[LocationBase]) -> Area:
+        first_point = self.create(
+            AreaPoint(area_id=area.id, latitude=points[0].latitude, longitude=points[0].longitude))
+        prev_point = first_point
+        for point in points[1:]:
+            current_point = self.create(AreaPoint(area_id=area.id, latitude=point.latitude, longitude=point.longitude))
+            prev_point.next_id = current_point.id
+            self.update(prev_point)
+            prev_point = current_point
+        prev_point.next_id = first_point.id
+        self.update(prev_point)
         return area
-
     def get_area(self, area_id: int) -> Area | None:
         return self.get(area_id, Area)
 
     def update_area(self, db_area: Area, name: str, points: List[LocationBase]) -> Area:
         db_area.name = name
-        coordinates = [(point.latitude, point.longitude) for point in points]
-        self.db.query(AreaPoint).filter(
-            AreaPoint.area_id == db_area.id,
-            ~or_(
-                and_(
-                    AreaPoint.latitude == coordinate[0],
-                    AreaPoint.longitude == coordinate[1]
-                ) for coordinate in coordinates
-            )
-        ).delete(synchronize_session=False)
-        area_points: list[AreaPoint] = db_area.areaPoints
-        area_points_coordinates = [(area_point.latitude, area_point.longitude) for area_point in area_points]
-        for point in points:
-            if (point.latitude, point.longitude) not in area_points_coordinates:
-                self.create(AreaPoint(area_id=db_area.id, latitude=point.latitude, longitude=point.longitude))
-        return self.update(db_area)
-
+        for point in db_area.areaPoints:
+            self.delete(point)
+        return self.create_area_points(db_area, points)
 
     def area_by_points(self, points: list[LocationBase]) -> Area | None:
         '''Возвращает зону, в которой находятся все точки'''
@@ -50,6 +45,42 @@ class AreaCRUD(CRUDBase):
         ).first()
         return area
 
+    def check_area_intersection(self, points: list[LocationBase]):
+        # Запрос на поиск пересечений существующих зон с новой зоной
+        query = (
+            self.db.query(Area)
+            .filter(
+                or_(
+                or_(
+                    # Пересечение по точкам
+                    and_(
+                        AreaPoint.latitude == new_point.latitude,
+                        AreaPoint.longitude == new_point.longitude
+                    ),
+                    # Пересечение по линиям границ
+                    AreaPoint.next_id == None,
+                    # Граница новой зоны пересекает границу существующей зоны
+                    and_(
+                        AreaPoint.latitude <= new_point.latitude,
+                        AreaPoint.next.latitude > new_point.latitude,
+                        (new_point.longitude - AreaPoint.longitude) * (
+                                AreaPoint.next.latitude - AreaPoint.latitude
+                        ) >= (
+                                AreaPoint.next.longitude - AreaPoint.longitude
+                        ) * (
+                                new_point.latitude - AreaPoint.latitude
+                        )
+                    )
+                ) for new_point in points )
+            )
+        )
+        return query.all()
+
+    def _get_next_area_point(self, point: AreaPoint) -> Union[AreaPoint, None]:
+        """
+        Возвращает следующую точку границы зоны
+        """
+        return AreaPoint.query.filter(AreaPoint.area_id == point.area_id, AreaPoint.id == point.next_id).one_or_none()
     # def check_area_intersection(self, area_id: int, points: list[LocationBase]) -> bool:
     #     lines = (
     #         select(

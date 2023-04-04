@@ -24,5 +24,11 @@ class AreaPoint(Base):
     area_id = Column(Integer, ForeignKey('areas.id'), nullable=False)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
+    next_id = Column(Integer, ForeignKey('area_point.id'), nullable=True)
+    next = relationship("AreaPoint",
+                        primaryjoin="AreaPoint.next_id == AreaPoint.id",
+
+                        uselist=False,
+                        )
 
 

@@ -21,6 +21,7 @@ def create_area(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Неверные координаты")
     area_crud = AreaCRUD(db)
+    print(area_crud.check_area_intersection(area_data.areaPoints))
     area_with_new_name = area_crud.get_area_by_name(name=area_data.name)
     if area_with_new_name is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
