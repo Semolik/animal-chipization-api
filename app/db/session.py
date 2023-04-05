@@ -10,7 +10,7 @@ from app.models.areas import *
 
 
 engine = create_engine(settings.DATABASE_URI)
-Base.metadata.drop_all(engine)
+# Base.metadata.drop_all(engine)
 Base.metadata.create_all(engine)
 
 

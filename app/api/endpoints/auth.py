@@ -24,7 +24,6 @@ def registration(
     if user_crud.get_user_by_email(user.email):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Пользователь с таким email уже существует")
-    print("user", user)
     return user_crud.create_user(
         firstName=user.firstName,
         lastName=user.lastName,
