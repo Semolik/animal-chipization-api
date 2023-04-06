@@ -120,10 +120,23 @@ def get_area_analytics(
         start_date=startDate,
         end_date=endDate
     )
-    print(analytics)
+    total_quantity_animals = area_crud.get_area_analytics_animals_count(
+            area_id=area_id,
+            start_date=startDate,
+            end_date=endDate
+        )
     return AreaAnalytics(
         animalsAnalytics=analytics,
-        totalQuantityAnimals=sum(animal_data.quantityAnimals for animal_data in analytics),
-        totalAnimalsArrived=sum(animal_data.animalsArrived for animal_data in analytics),
-        totalAnimalsGone=sum(animal_data.animalsGone for animal_data in analytics)
+        totalQuantityAnimals=total_quantity_animals,
+        totalAnimalsArrived=area_crud.get_area_analytics_animals_arrived(
+            area_id=area_id,
+            start_date=startDate,
+            end_date=endDate
+        ),
+        totalAnimalsGone=area_crud.get_area_analytics_animals_gone(
+            area_id=area_id,
+            start_date=startDate,
+            end_date=endDate
+        )
+
     )

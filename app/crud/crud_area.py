@@ -130,48 +130,121 @@ class AreaCRUD(CRUDBase):
 
     def get_area_analytics(self, area_id: int, start_date: datetime, end_date: datetime):
         query = (
-            self.db.query(
-                AnimalType.type.label("animalType"),
-                AnimalType.id.label("animalTypeId"),
-                func.count(Animal.id).label("quantityAnimals"),
-                func.count(case([(AnimalLocation.dateTimeOfVisitLocationPoint >= start_date, 1)])).label(
-                    'animalsArrived'),
-                func.count(case([(AnimalLocation.dateTimeOfVisitLocationPoint <= end_date, 1)])).label('animalsGone')
-            )
-            .join(AnimalTypeAnimal)
-            .join(Animal)
-            .join(AnimalLocation)
-            .join(Point)
-            .join(AreaPoint)
-            .join(Area)
-            .select_from(
-                AnimalTypeAnimal
-                .join(Animal, AnimalTypeAnimal.animal_id == Animal.id)
-                .join(AnimalLocation, Animal.last_location_id == AnimalLocation.id)
-                .join(Point, AnimalLocation.location_point_id == Point.id)
-                .join(AreaPoint, AreaPoint.next_id == Point.id)
-                .join(Area, Area.id == area_id)
-                .join(AnimalType, AnimalTypeAnimal.type_id == AnimalType.id)
-            )
-            .filter(
-                or_(
-                    and_(
-                        AreaPoint.latitude <= Point.latitude,
-                        AreaPoint.next_id == Point.id,
-                        (Point.longitude - AreaPoint.longitude) * (AreaPoint.latitude - Point.latitude)
-                        >= (AreaPoint.longitude - Point.longitude) * (Point.latitude - AreaPoint.latitude)
-                    ),
-                    and_(
-                        AreaPoint.latitude >= Point.latitude,
-                        AreaPoint.next_id == Point.id,
-                        (Point.longitude - AreaPoint.longitude) * (AreaPoint.latitude - Point.latitude)
-                        <= (AreaPoint.longitude - AreaPoint.latitude) * (Point.latitude - AreaPoint.latitude),
-                    ),
-                ),
+            self._get_analytics_query(
+                area_id=area_id,
+                start_date=start_date,
+                end_date=end_date,
+                query=self.db.query(
+                    AnimalType.type.label("animalType"),
+                    AnimalType.id.label("animalTypeId"),
+                    #Количество животных данного типа, находящихся в этой зоне в указанный интервал времени (Animal)
+                    func.count(distinct(Animal.id)).label("quantityAnimals"),
+                    func.sum(case([(AnimalLocation.dateTimeOfVisitLocationPoint >= start_date, 1)], else_=0)).label(
+                        "animalsArrived"),
+                    func.sum(case([(and_(AnimalLocation.dateTimeOfVisitLocationPoint < end_date,
+                                         AnimalLocation.dateTimeOfVisitLocationPoint >= start_date), 1)],
+                                  else_=0)).label(
+                        "animalsGone"),
+                )
             )
             .group_by(AnimalType.id)
-            .all()
         )
+        return query.all()
+
+    def get_area_analytics_animals_count(self, area_id: int, start_date: datetime, end_date: datetime):
+        query = (
+            self._get_analytics_query(
+                area_id=area_id,
+                start_date=start_date,
+                end_date=end_date,
+                query=self.db.query(
+                    Animal.id,
+                )
+            )
+            .distinct(Animal.id).group_by(Animal.id)
+        )
+        return query.count()
+
+    def get_area_analytics_animals_arrived(self, area_id: int, start_date: datetime, end_date: datetime):
+        query = self._get_analytics_query(
+                area_id=area_id,
+                start_date=start_date,
+                end_date=end_date,
+                query=self.db.query(
+                    func.count(distinct(Animal.id))
+                )
+            )
+        return query.count()
+
+    def get_area_analytics_animals_gone(self, area_id: int, start_date: datetime, end_date: datetime):
+        subquery = (
+            self.db.query(
+                AnimalLocation.animalId,
+                func.count(distinct(AnimalLocation.id)).label("num_visits")
+            )
+            .select_from(AnimalLocation)
+            .join(Point, Point.id == AnimalLocation.locationPointId)
+            .join(Area, Area.id == area_id)
+            .join(AreaPoint)
+            .filter(
+                AreaPoint.latitude <= Point.latitude,
+                (Point.longitude - AreaPoint.longitude) * (AreaPoint.latitude - Point.latitude)
+                >= (AreaPoint.longitude - Point.longitude) * (Point.latitude - AreaPoint.latitude),
+                AnimalLocation.dateTimeOfVisitLocationPoint >= start_date,
+                AnimalLocation.dateTimeOfVisitLocationPoint < end_date
+            )
+            .group_by(AnimalLocation.animalId)
+            .subquery()
+        )
+
+        query = (
+            self._get_analytics_query(
+                area_id=area_id,
+                start_date=start_date,
+                end_date=end_date,
+                query=self.db.query(
+                    func.count(distinct(Animal.id)),
+                )
+            )
+            .filter(subquery.c.num_visits > 0)
+        )
+
+        return query.count()
+
+    def get_next_animal_location(self, animal_id: int, date_time: datetime):
+        return (
+            self.db.query(AnimalLocation)
+            .filter(AnimalLocation.animalId == animal_id)
+            .filter(AnimalLocation.dateTimeOfVisitLocationPoint > date_time)
+            .order_by(AnimalLocation.dateTimeOfVisitLocationPoint)
+            .first()
+        )
+
+
+
+
+
+    def _get_analytics_query(self, area_id: int, query, start_date: datetime = None, end_date: datetime = None):
+        query = (
+            query
+            .select_from(AnimalLocation)
+            .join(Animal, Animal.id == AnimalLocation.animalId)
+            .join(AnimalTypeAnimal, AnimalTypeAnimal.animal_id == Animal.id)
+            .join(AnimalType, AnimalType.id == AnimalTypeAnimal.type_id)
+            .join(Point, Point.id == AnimalLocation.locationPointId)
+            .join(Area, Area.id == area_id)
+            .join(AreaPoint)
+            .filter(
+                AreaPoint.latitude <= Point.latitude,
+                (Point.longitude - AreaPoint.longitude) * (AreaPoint.latitude - Point.latitude)
+                >= (AreaPoint.longitude - Point.longitude) * (
+                            Point.latitude - Point.latitude),
+            )
+        )
+        if start_date:
+            query = query.filter(AnimalLocation.dateTimeOfVisitLocationPoint >= start_date)
+        if end_date:
+            query = query.filter(AnimalLocation.dateTimeOfVisitLocationPoint < end_date)
         return query
 
 
