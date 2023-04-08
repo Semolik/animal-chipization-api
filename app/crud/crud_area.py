@@ -1,5 +1,7 @@
 from datetime import datetime
 from typing import List, Union
+
+from fastapi import HTTPException
 from sqlalchemy import func, or_, and_, distinct, select, literal_column, case, exists, not_
 from sqlalchemy.orm import aliased, subqueryload
 
@@ -63,10 +65,26 @@ class AreaCRUD(CRUDBase):
         return query.first() if count > 0 else None
 
     def new_area_is_correct(self, points: list[LocationBase], only_intersects: bool = False) -> bool:
-        '''Проверяет, что новая зона не пересекается с существующими'''
         subquery = (
-            self.db.query(AreaPoint.id.label("id"), AreaPoint.latitude.label("latitude"),
-                          AreaPoint.longitude.label("longitude"), AreaPoint.next_id.label("next_id"))
+            self.db.query(
+                AreaPoint.id.label("id"), AreaPoint.latitude.label("latitude"),
+                AreaPoint.longitude.label("longitude"),
+                (
+                    self.db.query(
+                        AreaPoint.latitude
+                    )
+                    .filter(AreaPoint.id == AreaPoint.next_id)
+                    .as_scalar()
+                ).label("next_latitude"),
+                (
+                    self.db.query(
+                        AreaPoint.longitude
+                    )
+                    .filter(AreaPoint.id == AreaPoint.next_id)
+                    .as_scalar()
+                ).label("next_longitude"),
+                Area.id.label("area_id")
+            )
             .subquery()
         )
         intersection_filter = self._get_intersection_filter(points, subquery)
@@ -75,55 +93,108 @@ class AreaCRUD(CRUDBase):
             query = query.filter(intersection_filter)
             return query.first() is None
         else:
-            return query.filter(
-                or_(
-                    intersection_filter,
-                    self._get_containment_filter(points, subquery),
-                    self._get_new_area_inside_filter(points, subquery))
-                ).first() is None
+            filters = {
+                "intersection": intersection_filter,
+                "containment": self._get_containment_filter(points, subquery),
+                "new_area_inside": self._get_new_area_inside_filter(points, subquery)
+            }
+            for filter_name, filter in filters.items():
+                if query.filter(filter).first() is not None:
+                    raise HTTPException(status_code=400, detail=f"New area intersects with {filter_name}")
+            return True
 
     def _get_intersection_filter(self, points, subquery):
-
-        return or_(
-            or_(
-                and_( and_(
-                            subquery.c.latitude == new_point.latitude,
-                            subquery.c.longitude == new_point.longitude
+        filters = []
+        for i, point in enumerate(points[:-1]):
+            next_point = points[i + 1]
+            if next_point.longitude - point.longitude != 0:
+                k = (next_point.latitude - point.latitude) / (next_point.longitude - point.longitude)
+                b = point.latitude - k * point.longitude
+                # check if the line intersects with any of the existing areas
+                filters.append(
+                    or_(
+                        and_(
+                            subquery.c.latitude <= k * subquery.c.longitude + b,
+                            subquery.c.next_latitude >= k * subquery.c.next_longitude + b
                         ),
-                    subquery.c.latitude <= new_point.latitude,
-                    AreaPoint.next_id == subquery.c.id,
-                    (new_point.longitude - subquery.c.longitude) * (
-                            AreaPoint.latitude - subquery.c.latitude
-                    ) >= (
-                            AreaPoint.longitude - subquery.c.longitude
-                    ) * (
-                            new_point.latitude - subquery.c.latitude
+                        and_(
+                            subquery.c.latitude >= k * subquery.c.longitude + b,
+                            subquery.c.next_latitude <= k * subquery.c.next_longitude + b
+                        )
                     )
                 )
-            ) for new_point in points
-        )
+            else:
+                filters.append(
+                    or_(
+                        and_(
+                            subquery.c.longitude == point.longitude,
+                            and_(
+                                subquery.c.latitude <= point.latitude,
+                                subquery.c.next_latitude >= point.latitude
+                            )
+                        ),
+                        and_(
+                            subquery.c.longitude >= point.longitude,
+                            and_(
+                                subquery.c.latitude >= point.latitude,
+                                subquery.c.next_latitude <= point.latitude
+                            )
+                        )
+                    )
+                )
+        return and_(*filters)
 
-    def _get_containment_filter(self, points, subquery):
-        return or_(
-            and_(
-                subquery.c.latitude <= point.latitude,
-                subquery.c.next_id == i + 1 if i != len(points) - 1 else subquery.c.next_id == 1,
-                (point.longitude - subquery.c.longitude) * (prev_point.latitude - point.latitude)
-                >= (prev_point.longitude - subquery.c.longitude) * (point.latitude - subquery.c.latitude)
-            )
-            for i, (point, prev_point) in enumerate(zip(points, [points[-1]] + points[:-1]))
-        )
 
-    def _get_new_area_inside_filter(self, points, subquery):
-        return or_(
+
+
+    def _get_containment_filter(self, points: List[LocationBase], subquery):
+        # Get the latitude and longitude values of the existing zone
+
+
+        # Get the maximum and minimum latitude and longitude values of the existing zone
+        max_latitude_query = self.db.query(func.max(subquery.c.latitude))
+        max_longitude_query = self.db.query(func.max(subquery.c.longitude))
+        min_latitude_query = self.db.query(func.min(subquery.c.latitude))
+        min_longitude_query = self.db.query(func.min(subquery.c.longitude))
+
+        # Check if all points are inside the existing zone
+        filters = [
             and_(
-                subquery.c.latitude >= point.latitude,
-                subquery.c.next_id == i + 1 if i != len(points) - 1 else subquery.c.next_id == 1,
-                (point.longitude - subquery.c.longitude) * (prev_point.latitude - point.latitude)
-                <= (prev_point.longitude - subquery.c.longitude) * (point.latitude - subquery.c.latitude)
+                point.latitude >= min_latitude_query.scalar_subquery(),
+                point.latitude <= max_latitude_query.scalar_subquery(),
+                point.longitude >= min_longitude_query.scalar_subquery(),
+                point.longitude <= max_longitude_query.scalar_subquery()
             )
-            for i, (point, prev_point) in enumerate(zip(points, [points[-1]] + points[:-1]))
-        )
+            for point in points
+        ]
+        return and_(*filters)
+
+
+    def _get_new_area_inside_filter(self, points: List[LocationBase], subquery):
+        filters = []
+        for i, point in enumerate(points[:-1]):
+            next_point = points[i + 1]
+            if next_point.longitude - point.longitude != 0:
+                k = (next_point.latitude - point.latitude) / (next_point.longitude - point.longitude)
+                b = point.latitude - k * point.longitude
+                # check if all points are inside the area
+                filters.append(
+                    and_(
+                        subquery.c.latitude <= k * subquery.c.longitude + b,
+                        subquery.c.next_latitude <= k * subquery.c.next_longitude + b
+                    )
+                )
+            else:
+                filters.append(
+                    and_(
+                        subquery.c.longitude == point.longitude,
+                        and_(
+                            subquery.c.latitude <= point.latitude,
+                            subquery.c.next_latitude <= point.latitude
+                        )
+                    )
+                )
+        return and_(*filters)
 
     def get_area_by_name(self, name: str) -> Area | None:
         return self.db.query(Area).filter(Area.name == name).first()
