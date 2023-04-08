@@ -13,6 +13,7 @@ class AreaCRUD(CRUDBase):
     def create_area(self, name: str, points: list[LocationBase]) -> Area:
         area = self.create(Area(name=name))
         return self.create_area_points(area, points)
+
     def create_area_points(self, area: Area, points: list[LocationBase]) -> Area:
         first_point = self.create(
             AreaPoint(area_id=area.id, latitude=points[0].latitude, longitude=points[0].longitude))
@@ -25,6 +26,7 @@ class AreaCRUD(CRUDBase):
         prev_point.next_id = first_point.id
         self.update(prev_point)
         return area
+
     def get_area(self, area_id: int) -> Area | None:
         return self.get(area_id, Area)
 
@@ -73,15 +75,12 @@ class AreaCRUD(CRUDBase):
             query = query.filter(intersection_filter)
             return query.first() is None
         else:
-            for i in [
-                intersection_filter,
-                self._get_containment_filter(points, subquery),
-                self._get_new_area_inside_filter(points, subquery)
-            ]:
-                if query.filter(i).first() is not None:
-                    print(i)
-                    return False
-            return True
+            return query.filter(
+                or_(
+                    intersection_filter,
+                    self._get_containment_filter(points, subquery),
+                    self._get_new_area_inside_filter(points, subquery))
+                ).first() is None
 
     def _get_intersection_filter(self, points, subquery):
 
@@ -125,6 +124,7 @@ class AreaCRUD(CRUDBase):
             )
             for i, (point, prev_point) in enumerate(zip(points, [points[-1]] + points[:-1]))
         )
+
     def get_area_by_name(self, name: str) -> Area | None:
         return self.db.query(Area).filter(Area.name == name).first()
 
@@ -158,11 +158,15 @@ class AreaCRUD(CRUDBase):
                 start_date=start_date,
                 end_date=end_date,
                 query=self.db.query(
-                    Animal.id,
+                    Point.latitude,
+                    Point.longitude,
                 )
             )
-            .distinct(Animal.id).group_by(Animal.id)
+            .distinct(Animal.id)
         )
+        points = self.get(area_id, Area).areaPoints
+        print("Точки зоны:", [(point.latitude, point.longitude) for point in points])
+        print("Точки животных:", query.all())
         return query.count()
 
     def get_area_analytics_animals_arrived(self, area_id: int, start_date: datetime, end_date: datetime):
@@ -174,6 +178,7 @@ class AreaCRUD(CRUDBase):
                     func.count(distinct(Animal.id))
                 )
             )
+        query = query.group_by(Animal.id)
         return query.count()
 
     def get_area_analytics_animals_gone(self, area_id: int, start_date: datetime, end_date: datetime):
@@ -219,10 +224,6 @@ class AreaCRUD(CRUDBase):
             .order_by(AnimalLocation.dateTimeOfVisitLocationPoint)
             .first()
         )
-
-
-
-
 
     def _get_analytics_query(self, area_id: int, query, start_date: datetime = None, end_date: datetime = None):
         query = (
