@@ -112,73 +112,52 @@ class AreaCRUD(CRUDBase):
 
     def _get_intersection_filter(self, points, subquery):
         filters = []
-        for i, point1 in enumerate(points):
-            for j, point2 in enumerate(points):
-                if i == j:
-                    continue
-                if point1.longitude == point2.longitude:
-                    # special case when the points are on the same longitude line
-                    filters.append(
+        for i in range(len(points)):
+            for j in range(i + 1, len(points)):
+                p1 = points[i]
+                p2 = points[j]
+                min_lat = min(p1.latitude, p2.latitude)
+                max_lat = max(p1.latitude, p2.latitude)
+                min_long = min(p1.longitude, p2.longitude)
+                max_long = max(p1.longitude, p2.longitude)
+                filters.append(
+                    and_(
+                        subquery.c.latitude <= max_lat,
+                        subquery.c.next_latitude >= min_lat,
+                        subquery.c.longitude <= max_long,
+                        subquery.c.next_longitude >= min_long,
                         or_(
                             and_(
-                                subquery.c.longitude == point1.longitude,
-                                and_(
-                                    subquery.c.latitude <= max(point1.latitude, point2.latitude),
-                                    subquery.c.next_latitude >= min(point1.latitude, point2.latitude)
-                                )
+                                subquery.c.latitude >= p1.latitude,
+                                subquery.c.next_latitude >= p1.latitude,
+                                subquery.c.latitude <= p2.latitude,
+                                subquery.c.next_latitude <= p2.latitude,
+                                subquery.c.longitude <= p1.longitude,
+                                subquery.c.next_longitude >= p2.longitude,
                             ),
                             and_(
-                                subquery.c.longitude >= point1.longitude,
-                                and_(
-                                    subquery.c.latitude >= min(point1.latitude, point2.latitude),
-                                    subquery.c.next_latitude <= max(point1.latitude, point2.latitude)
-                                )
+                                subquery.c.latitude >= p2.latitude,
+                                subquery.c.next_latitude >= p2.latitude,
+                                subquery.c.latitude <= p1.latitude,
+                                subquery.c.next_latitude <= p1.latitude,
+                                subquery.c.longitude <= p2.longitude,
+                                subquery.c.next_longitude >= p1.longitude,
+                            ),
+                            and_(
+                                subquery.c.latitude >= p1.latitude,
+                                subquery.c.next_latitude <= p2.latitude,
+                                subquery.c.longitude <= p1.longitude,
+                                subquery.c.next_longitude >= p2.longitude,
+                            ),
+                            and_(
+                                subquery.c.latitude >= p2.latitude,
+                                subquery.c.next_latitude <= p1.latitude,
+                                subquery.c.longitude <= p2.longitude,
+                                subquery.c.next_longitude >= p1.longitude,
                             )
                         )
                     )
-                elif point1.longitude < point2.longitude:
-                    # calculate the equation of the line between point1 and point2
-                    k = (point2.latitude - point1.latitude) / (point2.longitude - point1.longitude)
-                    b = point1.latitude - k * point1.longitude
-                    # check if the line intersects with any of the existing areas
-                    filters.append(
-                        and_(
-                            subquery.c.longitude >= point1.longitude,
-                            subquery.c.next_longitude <= point2.longitude,
-                            or_(
-                                and_(
-                                    subquery.c.latitude <= k * subquery.c.longitude + b,
-                                    subquery.c.next_latitude >= k * subquery.c.next_longitude + b
-                                ),
-                                and_(
-                                    subquery.c.latitude >= k * subquery.c.longitude + b,
-                                    subquery.c.next_latitude <= k * subquery.c.next_longitude + b
-                                )
-                            )
-                        )
-                    )
-                else:
-                    # calculate the equation of the line between point2 and point1
-                    k = (point1.latitude - point2.latitude) / (point1.longitude - point2.longitude)
-                    b = point2.latitude - k * point2.longitude
-                    # check if the line intersects with any of the existing areas
-                    filters.append(
-                        and_(
-                            subquery.c.longitude >= point2.longitude,
-                            subquery.c.next_longitude <= point1.longitude,
-                            or_(
-                                and_(
-                                    subquery.c.latitude <= k * subquery.c.longitude + b,
-                                    subquery.c.next_latitude >= k * subquery.c.next_longitude + b
-                                ),
-                                and_(
-                                    subquery.c.latitude >= k * subquery.c.longitude + b,
-                                    subquery.c.next_latitude <= k * subquery.c.next_longitude + b
-                                )
-                            )
-                        )
-                    )
-
+                )
         return or_(*filters)
 
 
