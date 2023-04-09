@@ -63,9 +63,8 @@ class AreaCRUD(CRUDBase):
             query = query.filter(Area.id.in_(subquery))
         count = query.group_by(Area.id).having(func.count(Area.id) == len(points)).count()
         return query.first() if count > 0 else None
-
-    def new_area_is_correct(self, points: list[LocationBase], only_intersects: bool = False) -> bool:
-        subquery = (
+    def _get_next_point_and_current_point_subquery(self):
+        return (
             self.db.query(
                 AreaPoint.id.label("id"), AreaPoint.latitude.label("latitude"),
                 AreaPoint.longitude.label("longitude"),
@@ -87,6 +86,9 @@ class AreaCRUD(CRUDBase):
             )
             .subquery()
         )
+
+    def new_area_is_correct(self, points: list[LocationBase], only_intersects: bool = False) -> bool:
+        subquery = self._get_next_point_and_current_point_subquery()
         intersection_filter = self._get_intersection_filter(points, subquery)
         query = self.db.query(Area).join(AreaPoint).join(subquery, subquery.c.id == AreaPoint.id)
         if only_intersects:
@@ -134,6 +136,7 @@ class AreaCRUD(CRUDBase):
                                 subquery.c.next_latitude <= p2.latitude,
                                 subquery.c.longitude <= p1.longitude,
                                 subquery.c.next_longitude >= p2.longitude,
+
                             ),
                             and_(
                                 subquery.c.latitude >= p2.latitude,
@@ -142,19 +145,21 @@ class AreaCRUD(CRUDBase):
                                 subquery.c.next_latitude <= p1.latitude,
                                 subquery.c.longitude <= p2.longitude,
                                 subquery.c.next_longitude >= p1.longitude,
+
                             ),
                             and_(
                                 subquery.c.latitude >= p1.latitude,
                                 subquery.c.next_latitude <= p2.latitude,
                                 subquery.c.longitude <= p1.longitude,
                                 subquery.c.next_longitude >= p2.longitude,
+
                             ),
                             and_(
                                 subquery.c.latitude >= p2.latitude,
                                 subquery.c.next_latitude <= p1.latitude,
                                 subquery.c.longitude <= p2.longitude,
                                 subquery.c.next_longitude >= p1.longitude,
-                            )
+                            ),
                         )
                     )
                 )
@@ -163,6 +168,7 @@ class AreaCRUD(CRUDBase):
 
 
     def _get_containment_filter(self, points: List[LocationBase], subquery):
+        '''Проверяет, что новая зона содержится внутри существующих'''
         filters = []
         for i, point in enumerate(points[:-1]):
             next_point = points[i + 1]
@@ -171,22 +177,20 @@ class AreaCRUD(CRUDBase):
                 b = point.latitude - k * point.longitude
                 filters.append(
                     and_(
-                        subquery.c.latitude <= k * subquery.c.longitude + b,
-                        subquery.c.next_latitude <= k * subquery.c.next_longitude + b
+                        subquery.c.latitude >= k * subquery.c.longitude + b,
+                        subquery.c.next_latitude >= k * subquery.c.next_longitude + b
                     )
                 )
             else:
                 filters.append(
                     and_(
                         subquery.c.longitude == point.longitude,
-                        subquery.c.latitude <= point.latitude
+                        subquery.c.latitude >= point.latitude,
+                        subquery.c.next_longitude == point.longitude,
+                        subquery.c.next_latitude >= point.latitude,
                     )
                 )
-
-        # Добавляем фильтр, проверяющий, находится ли точка внутри многоугольника.
-        filters.append(self._get_new_area_inside_filter(points, subquery))
-
-        return and_(*filters)
+        return or_(*filters)
 
     def _get_new_area_inside_filter(self, points: List[LocationBase], subquery):
         filters = []
@@ -328,8 +332,7 @@ class AreaCRUD(CRUDBase):
             .filter(
                 AreaPoint.latitude <= Point.latitude,
                 (Point.longitude - AreaPoint.longitude) * (AreaPoint.latitude - Point.latitude)
-                >= (AreaPoint.longitude - Point.longitude) * (
-                            Point.latitude - Point.latitude),
+                >= (AreaPoint.longitude - Point.longitude) * (Point.latitude - AreaPoint.latitude),
             )
         )
         if start_date:
@@ -337,5 +340,3 @@ class AreaCRUD(CRUDBase):
         if end_date:
             query = query.filter(AnimalLocation.dateTimeOfVisitLocationPoint < end_date)
         return query
-
-
