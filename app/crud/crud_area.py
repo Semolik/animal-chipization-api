@@ -99,85 +99,97 @@ class AreaCRUD(CRUDBase):
                 "new_area_inside": self._get_new_area_inside_filter(points, subquery)
             }
             for filter_name, filter in filters.items():
-                if query.filter(filter).first() is not None:
-                    raise HTTPException(status_code=400, detail=f"New area intersects with {filter_name}")
+                error_area = query.filter(filter).first()
+                print(f"New area points: {points}")
+
+                if error_area is not None:
+                    msg =f"New area intersects with {filter_name} area {error_area.id}"
+                    print(msg)
+                    print(
+                        f"Error area points: {[(point.latitude, point.longitude) for point in error_area.areaPoints]}")
+                    raise HTTPException(status_code=400, detail=msg)
             return True
 
     def _get_intersection_filter(self, points, subquery):
         filters = []
-        for i, point in enumerate(points[:-1]):
-            next_point = points[i + 1]
-            if next_point.longitude - point.longitude != 0:
-                k = (next_point.latitude - point.latitude) / (next_point.longitude - point.longitude)
-                b = point.latitude - k * point.longitude
-                # check if the line intersects with any of the existing areas
-                filters.append(
-                    or_(
-                        and_(
-                            subquery.c.latitude <= k * subquery.c.longitude + b,
-                            subquery.c.next_latitude >= k * subquery.c.next_longitude + b
-                        ),
-                        and_(
-                            subquery.c.latitude >= k * subquery.c.longitude + b,
-                            subquery.c.next_latitude <= k * subquery.c.next_longitude + b
-                        )
-                    )
-                )
-            else:
-                filters.append(
-                    or_(
-                        and_(
-                            subquery.c.longitude == point.longitude,
+        for i, point1 in enumerate(points):
+            for j, point2 in enumerate(points):
+                if i == j:
+                    continue
+                if point1.longitude == point2.longitude:
+                    # special case when the points are on the same longitude line
+                    filters.append(
+                        or_(
                             and_(
-                                subquery.c.latitude <= point.latitude,
-                                subquery.c.next_latitude >= point.latitude
-                            )
-                        ),
-                        and_(
-                            subquery.c.longitude >= point.longitude,
+                                subquery.c.longitude == point1.longitude,
+                                and_(
+                                    subquery.c.latitude <= max(point1.latitude, point2.latitude),
+                                    subquery.c.next_latitude >= min(point1.latitude, point2.latitude)
+                                )
+                            ),
                             and_(
-                                subquery.c.latitude >= point.latitude,
-                                subquery.c.next_latitude <= point.latitude
+                                subquery.c.longitude >= point1.longitude,
+                                and_(
+                                    subquery.c.latitude >= min(point1.latitude, point2.latitude),
+                                    subquery.c.next_latitude <= max(point1.latitude, point2.latitude)
+                                )
                             )
                         )
                     )
-                )
-        return and_(*filters)
+                elif point1.longitude < point2.longitude:
+                    # calculate the equation of the line between point1 and point2
+                    k = (point2.latitude - point1.latitude) / (point2.longitude - point1.longitude)
+                    b = point1.latitude - k * point1.longitude
+                    # check if the line intersects with any of the existing areas
+                    filters.append(
+                        and_(
+                            subquery.c.longitude >= point1.longitude,
+                            subquery.c.next_longitude <= point2.longitude,
+                            or_(
+                                and_(
+                                    subquery.c.latitude <= k * subquery.c.longitude + b,
+                                    subquery.c.next_latitude >= k * subquery.c.next_longitude + b
+                                ),
+                                and_(
+                                    subquery.c.latitude >= k * subquery.c.longitude + b,
+                                    subquery.c.next_latitude <= k * subquery.c.next_longitude + b
+                                )
+                            )
+                        )
+                    )
+                else:
+                    # calculate the equation of the line between point2 and point1
+                    k = (point1.latitude - point2.latitude) / (point1.longitude - point2.longitude)
+                    b = point2.latitude - k * point2.longitude
+                    # check if the line intersects with any of the existing areas
+                    filters.append(
+                        and_(
+                            subquery.c.longitude >= point2.longitude,
+                            subquery.c.next_longitude <= point1.longitude,
+                            or_(
+                                and_(
+                                    subquery.c.latitude <= k * subquery.c.longitude + b,
+                                    subquery.c.next_latitude >= k * subquery.c.next_longitude + b
+                                ),
+                                and_(
+                                    subquery.c.latitude >= k * subquery.c.longitude + b,
+                                    subquery.c.next_latitude <= k * subquery.c.next_longitude + b
+                                )
+                            )
+                        )
+                    )
 
+        return or_(*filters)
 
 
 
     def _get_containment_filter(self, points: List[LocationBase], subquery):
-        # Get the latitude and longitude values of the existing zone
-
-
-        # Get the maximum and minimum latitude and longitude values of the existing zone
-        max_latitude_query = self.db.query(func.max(subquery.c.latitude))
-        max_longitude_query = self.db.query(func.max(subquery.c.longitude))
-        min_latitude_query = self.db.query(func.min(subquery.c.latitude))
-        min_longitude_query = self.db.query(func.min(subquery.c.longitude))
-
-        # Check if all points are inside the existing zone
-        filters = [
-            and_(
-                point.latitude >= min_latitude_query.scalar_subquery(),
-                point.latitude <= max_latitude_query.scalar_subquery(),
-                point.longitude >= min_longitude_query.scalar_subquery(),
-                point.longitude <= max_longitude_query.scalar_subquery()
-            )
-            for point in points
-        ]
-        return and_(*filters)
-
-
-    def _get_new_area_inside_filter(self, points: List[LocationBase], subquery):
         filters = []
         for i, point in enumerate(points[:-1]):
             next_point = points[i + 1]
             if next_point.longitude - point.longitude != 0:
                 k = (next_point.latitude - point.latitude) / (next_point.longitude - point.longitude)
                 b = point.latitude - k * point.longitude
-                # check if all points are inside the area
                 filters.append(
                     and_(
                         subquery.c.latitude <= k * subquery.c.longitude + b,
@@ -188,13 +200,41 @@ class AreaCRUD(CRUDBase):
                 filters.append(
                     and_(
                         subquery.c.longitude == point.longitude,
-                        and_(
-                            subquery.c.latitude <= point.latitude,
-                            subquery.c.next_latitude <= point.latitude
-                        )
+                        subquery.c.latitude <= point.latitude
                     )
                 )
+
+        # Добавляем фильтр, проверяющий, находится ли точка внутри многоугольника.
+        filters.append(self._get_new_area_inside_filter(points, subquery))
+
         return and_(*filters)
+
+    def _get_new_area_inside_filter(self, points: List[LocationBase], subquery):
+        filters = []
+        for i, point in enumerate(points[:-1]):
+            next_point = points[i + 1]
+            if next_point.longitude - point.longitude != 0:
+                k = (next_point.latitude - point.latitude) / (next_point.longitude - point.longitude)
+                b = point.latitude - k * point.longitude
+                filters.append(
+                    and_(
+                        subquery.c.latitude <= k * subquery.c.longitude + b,
+                        subquery.c.next_latitude <= k * subquery.c.next_longitude + b
+                    )
+                )
+            else:
+                filters.append(
+                    and_(
+                        subquery.c.longitude == point.longitude,
+                        subquery.c.latitude <= point.latitude,
+                        subquery.c.next_longitude == point.longitude,
+                        subquery.c.next_latitude >= next_point.latitude,
+                    )
+                )
+        return or_(*filters)
+
+
+
 
     def get_area_by_name(self, name: str) -> Area | None:
         return self.db.query(Area).filter(Area.name == name).first()
