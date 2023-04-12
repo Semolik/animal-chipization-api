@@ -252,28 +252,27 @@ class AreaCRUD(CRUDBase):
                 start_date=start_date,
                 end_date=end_date,
                 query=self.db.query(
-                    Point.latitude,
-                    Point.longitude,
+                    Animal.id
                 )
             )
             .distinct(Animal.id)
         )
-        points = self.get(area_id, Area).areaPoints
-        print("Точки зоны:", [(point.latitude, point.longitude) for point in points])
-        print("Точки животных:", query.all())
         return query.count()
 
     def get_area_analytics_animals_arrived(self, area_id: int, start_date: datetime, end_date: datetime):
         query = self._get_analytics_query(
-                area_id=area_id,
-                start_date=start_date,
-                end_date=end_date,
-                query=self.db.query(
-                    func.count(distinct(Animal.id))
-                )
+            area_id=area_id,
+            start_date=start_date,
+            end_date=end_date,
+            query=self.db.query(
+                Animal.id
             )
-        query = query.group_by(Animal.id)
+        ).distinct(Animal.id)
+        points = self.get(area_id, Area).areaPoints
+        print("Точки зоны:", [(point.latitude, point.longitude) for point in points])
+        print(query.all())
         return query.count()
+
 
     def get_area_analytics_animals_gone(self, area_id: int, start_date: datetime, end_date: datetime):
         subquery = (
