@@ -285,8 +285,9 @@ class AreaCRUD(CRUDBase):
             if prev_location_point is not None:
                 is_in_area = True
                 for point in area_points:
-                    if (point.latitude - prev_location_point.latitude) * (point.longitude - current_point_id) - (
-                            point.longitude - prev_location_point.longitude) * (point.latitude - current_point_id) < 0:
+                    if not (point.latitude <= prev_location_point.latitude and
+                        (prev_location_point.longitude - point.longitude) * (point.latitude - prev_location_point.latitude)
+                        >= (point.longitude - prev_location_point.longitude) * (prev_location_point.latitude - point.latitude)):
                         is_in_area = False
                         break
                 if is_in_area:
@@ -294,46 +295,41 @@ class AreaCRUD(CRUDBase):
                 print("Предыдущая точка в зоне:", is_in_area is None)
         return arrived
 
-
-        points = self.get(area_id, Area).areaPoints
-        print("Точки зоны:", [(point.latitude, point.longitude) for point in points])
-        print(query.all())
-        return query.count()
-
     def get_area_analytics_animals_gone(self, area_id: int, start_date: datetime, end_date: datetime):
-        subquery = (
-            self.db.query(
-                AnimalLocation.animalId,
-                func.count(distinct(AnimalLocation.id)).label("num_visits")
+        query = self._get_analytics_query(
+            area_id=area_id,
+            start_date=start_date,
+            end_date=end_date,
+            query=self.db.query(
+                Animal.id, AnimalLocation.dateTimeOfVisitLocationPoint, Point.id, Animal.chippingLocationId,
+                AnimalLocation.id
             )
-            .select_from(AnimalLocation)
-            .join(Point, Point.id == AnimalLocation.locationPointId)
-            .join(Area, Area.id == area_id)
-            .join(AreaPoint)
-            .filter(
-                AreaPoint.latitude <= Point.latitude,
-                (Point.longitude - AreaPoint.longitude) * (AreaPoint.latitude - Point.latitude)
-                >= (AreaPoint.longitude - Point.longitude) * (Point.latitude - AreaPoint.latitude),
-                AnimalLocation.dateTimeOfVisitLocationPoint >= start_date,
-                AnimalLocation.dateTimeOfVisitLocationPoint < end_date
-            )
-            .group_by(AnimalLocation.animalId)
-            .subquery()
-        )
-
-        query = (
-            self._get_analytics_query(
-                area_id=area_id,
-                start_date=start_date,
-                end_date=end_date,
-                query=self.db.query(
-                    func.count(distinct(Animal.id)),
-                )
-            )
-            .filter(subquery.c.num_visits > 0)
-        )
-
-        return query.count()
+        ).order_by(Animal.id, AnimalLocation.dateTimeOfVisitLocationPoint.asc()).distinct(Animal.id)
+        gone = 0
+        area_points = self.db.query(Point).join(AreaPoint, AreaPoint.area_id == area_id).all()
+        for animal_id, date, current_point_id, chipping_location_id, animal_location_id in query.all():
+            next_location_point = self.db.query(Point).join(AnimalLocation, AnimalLocation.locationPointId == Point.id).filter(
+                AnimalLocation.animalId == animal_id,
+                AnimalLocation.dateTimeOfVisitLocationPoint > date
+            ).order_by(AnimalLocation.dateTimeOfVisitLocationPoint.asc()).first()
+            print("Текущая точка:", current_point_id)
+            print("Следующая точка:", next_location_point.id if next_location_point else None)
+            print("Координаты следующей точки:", (next_location_point.latitude, next_location_point.longitude) if next_location_point else "None")
+            print("Координаты зоны:", [(point.latitude, point.longitude) for point in area_points] )
+            print("Точка чипирования:", chipping_location_id)
+            print()
+            if next_location_point is not None:
+                is_in_area = True
+                for point in area_points:
+                    if not (point.latitude <= next_location_point.latitude and
+                        (next_location_point.longitude - point.longitude) * (point.latitude - next_location_point.latitude)
+                        >= (point.longitude - next_location_point.longitude) * (next_location_point.latitude - point.latitude)):
+                        is_in_area = False
+                        break
+                if not is_in_area:
+                    gone += 1
+                print("Следующая точка в зоне:", is_in_area is None)
+        return gone
 
     def get_next_animal_location(self, animal_id: int, date_time: datetime):
         return (
