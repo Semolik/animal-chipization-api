@@ -102,13 +102,13 @@ class AreaCRUD(CRUDBase):
             }
             for filter_name, filter in filters.items():
                 error_area = query.filter(filter).first()
-                print(f"New area points: {points}")
+                #print(f"New area points: {points}")
 
                 if error_area is not None:
                     msg =f"New area intersects with {filter_name} area {error_area.id}"
-                    print(msg)
-                    print(
-                        f"Error area points: {[(point.latitude, point.longitude) for point in error_area.areaPoints]}")
+                    #print(msg)
+                    # print(
+                    #     f"Error area points: {[(point.latitude, point.longitude) for point in error_area.areaPoints]}")
                     raise HTTPException(status_code=400, detail=msg)
             return True
 
@@ -265,14 +265,40 @@ class AreaCRUD(CRUDBase):
             start_date=start_date,
             end_date=end_date,
             query=self.db.query(
-                Animal.id
+                Animal.id, AnimalLocation.dateTimeOfVisitLocationPoint, Point.id, Animal.chippingLocationId, AnimalLocation.id
             )
-        ).distinct(Animal.id)
+        ).order_by(Animal.id, AnimalLocation.dateTimeOfVisitLocationPoint.asc()).distinct(Animal.id)
+        arrived = 0
+        area_points = self.db.query(Point).join(AreaPoint, AreaPoint.area_id == area_id).all()
+        for animal_id, date, current_point_id, chipping_location_id, animal_location_id in query.all():
+            prev_location_point = self.db.query(Point).join(AnimalLocation, AnimalLocation.locationPointId == Point.id).filter(
+                AnimalLocation.animalId == animal_id,
+                AnimalLocation.dateTimeOfVisitLocationPoint < date
+            ).order_by(AnimalLocation.dateTimeOfVisitLocationPoint.desc()).first()
+
+            if prev_location_point is None and chipping_location_id <= current_point_id:
+                prev_location_point = self.db.query(Point).filter(Point.id == chipping_location_id).first()
+            print("Текущая точка:", current_point_id)
+            print("Предыдущая точка:", prev_location_point.id if prev_location_point else None)
+            print("Точка чипирования:", chipping_location_id)
+            print()
+            if prev_location_point is not None:
+                is_in_area = True
+                for point in area_points:
+                    if (point.latitude - prev_location_point.latitude) * (point.longitude - current_point_id) - (
+                            point.longitude - prev_location_point.longitude) * (point.latitude - current_point_id) < 0:
+                        is_in_area = False
+                        break
+                if is_in_area:
+                    arrived += 1
+                print("Предыдущая точка в зоне:", is_in_area is None)
+        return arrived
+
+
         points = self.get(area_id, Area).areaPoints
         print("Точки зоны:", [(point.latitude, point.longitude) for point in points])
         print(query.all())
         return query.count()
-
 
     def get_area_analytics_animals_gone(self, area_id: int, start_date: datetime, end_date: datetime):
         subquery = (

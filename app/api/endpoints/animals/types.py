@@ -21,9 +21,11 @@ def create_animal_type(
     if animal_type:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Тип животного с таким type  уже существует")
-    return animal_type_crud.create_animal_type(
+    animal_type = animal_type_crud.create_animal_type(
         name=animal_type_data.type,
     )
+    print("Создан тип животного: ", animal_type.id)
+    return animal_type
 
 
 @router.put("/{typeId}", response_model=AnimalType)
