@@ -231,19 +231,33 @@ class AreaCRUD(CRUDBase):
                 query=self.db.query(
                     AnimalType.type.label("animalType"),
                     AnimalType.id.label("animalTypeId"),
-                    #Количество животных данного типа, находящихся в этой зоне в указанный интервал времени (Animal)
-                    func.count(distinct(Animal.id)).label("quantityAnimals"),
-                    func.sum(case([(AnimalLocation.dateTimeOfVisitLocationPoint >= start_date, 1)], else_=0)).label(
-                        "animalsArrived"),
-                    func.sum(case([(and_(AnimalLocation.dateTimeOfVisitLocationPoint < end_date,
-                                         AnimalLocation.dateTimeOfVisitLocationPoint >= start_date), 1)],
-                                  else_=0)).label(
-                        "animalsGone"),
                 )
             )
             .group_by(AnimalType.id)
         )
-        return query.all()
+        info = []
+        for animal_type in query:
+            type_query = (self._get_analytics_query(
+                        area_id=area_id,
+                        start_date=start_date,
+                        end_date=end_date,
+                        query=self.db.query(
+                            Animal.id
+                        )
+                    )
+                    .filter(AnimalType.id == animal_type.animalTypeId)
+                    .distinct(Animal.id))
+            print("type_query", type_query.all())
+            info.append(
+                {
+                    "animalType": animal_type.animalType,
+                    "animalTypeId": animal_type.animalTypeId,
+                    "animalsArrived": self.get_area_analytics_animals_arrived(area_id, start_date, end_date, type_id=animal_type.animalTypeId),
+                    "animalsGone": self.get_area_analytics_animals_gone(area_id, start_date, end_date, type_id=animal_type.animalTypeId),
+                    "quantityAnimals": type_query.count(),
+                }
+            )
+        return info
 
     def get_area_analytics_animals_count(self, area_id: int, start_date: datetime, end_date: datetime):
         query = (
@@ -259,7 +273,7 @@ class AreaCRUD(CRUDBase):
         )
         return query.count()
 
-    def get_area_analytics_animals_arrived(self, area_id: int, start_date: datetime, end_date: datetime):
+    def get_area_analytics_animals_arrived(self, area_id: int, start_date: datetime, end_date: datetime, type_id: int = None):
         query = self._get_analytics_query(
             area_id=area_id,
             start_date=start_date,
@@ -268,6 +282,8 @@ class AreaCRUD(CRUDBase):
                 Animal.id, AnimalLocation.dateTimeOfVisitLocationPoint, Point.id, Animal.chippingLocationId, AnimalLocation.id
             )
         ).order_by(Animal.id, AnimalLocation.dateTimeOfVisitLocationPoint.asc()).distinct(Animal.id)
+        if type_id is not None:
+            query = query.filter(AnimalType.id == type_id)
         arrived = 0
         area_points = self.db.query(Point).join(AreaPoint, AreaPoint.area_id == area_id).all()
         for animal_id, date, current_point_id, chipping_location_id, animal_location_id in query.all():
@@ -292,10 +308,10 @@ class AreaCRUD(CRUDBase):
                         break
                 if is_in_area:
                     arrived += 1
-                print("Предыдущая точка в зоне:", is_in_area is None)
+                print("Предыдущая точка в зоне:", is_in_area)
         return arrived
 
-    def get_area_analytics_animals_gone(self, area_id: int, start_date: datetime, end_date: datetime):
+    def get_area_analytics_animals_gone(self, area_id: int, start_date: datetime, end_date: datetime, type_id: int= None):
         query = self._get_analytics_query(
             area_id=area_id,
             start_date=start_date,
@@ -303,8 +319,10 @@ class AreaCRUD(CRUDBase):
             query=self.db.query(
                 Animal.id, AnimalLocation.dateTimeOfVisitLocationPoint, Point.id, Animal.chippingLocationId,
                 AnimalLocation.id
-            )
+            ),
         ).order_by(Animal.id, AnimalLocation.dateTimeOfVisitLocationPoint.asc()).distinct(Animal.id)
+        if type_id is not None:
+            query = query.filter(AnimalType.id == type_id)
         gone = 0
         area_points = self.db.query(Point).join(AreaPoint, AreaPoint.area_id == area_id).all()
         for animal_id, date, current_point_id, chipping_location_id, animal_location_id in query.all():
@@ -318,6 +336,8 @@ class AreaCRUD(CRUDBase):
             print("Координаты зоны:", [(point.latitude, point.longitude) for point in area_points] )
             print("Точка чипирования:", chipping_location_id)
             print()
+            if not next_location_point:
+                next_location_point = self.db.query(Point).filter(Point.id == current_point_id).first()
             if next_location_point is not None:
                 is_in_area = True
                 for point in area_points:
@@ -347,15 +367,14 @@ class AreaCRUD(CRUDBase):
             .join(Animal, Animal.id == AnimalLocation.animalId)
             .join(AnimalTypeAnimal, AnimalTypeAnimal.animal_id == Animal.id)
             .join(AnimalType, AnimalType.id == AnimalTypeAnimal.type_id)
-            .join(Point, Point.id == AnimalLocation.locationPointId)
+            .join(Point, or_(Point.id == AnimalLocation.locationPointId, Point.id == Animal.chippingLocationId))
             .join(Area, Area.id == area_id)
             .join(AreaPoint)
             .filter(
                 AreaPoint.latitude <= Point.latitude,
                 (Point.longitude - AreaPoint.longitude) * (AreaPoint.latitude - Point.latitude)
                 >= (AreaPoint.longitude - Point.longitude) * (Point.latitude - AreaPoint.latitude),
-            )
-        )
+            ))
         if start_date:
             query = query.filter(AnimalLocation.dateTimeOfVisitLocationPoint >= start_date)
         if end_date:
