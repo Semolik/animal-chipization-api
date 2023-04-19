@@ -9,6 +9,8 @@ services:
       - POSTGRES_DB=animal-chipization
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PORT=5434
+      - POSTGRES_HOST=database
     healthcheck:
       test:
         [

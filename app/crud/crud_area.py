@@ -4,7 +4,7 @@ from typing import List, Union
 from fastapi import HTTPException
 from sqlalchemy import func, or_, and_, distinct, select, literal_column, case, exists, not_
 from sqlalchemy.orm import aliased, subqueryload
-
+from shapely import Point as ShapelyPoint, Polygon as ShapelyPolygon
 from app.crud.base import CRUDBase
 from app.models.animals import Animal, AnimalLocation, AnimalType, AnimalTypeAnimal
 from app.models.areas import Area, AreaPoint
@@ -66,7 +66,8 @@ class AreaCRUD(CRUDBase):
     def _get_next_point_and_current_point_subquery(self):
         return (
             self.db.query(
-                AreaPoint.id.label("id"), AreaPoint.latitude.label("latitude"),
+                AreaPoint.id.label("id"),
+                AreaPoint.latitude.label("latitude"),
                 AreaPoint.longitude.label("longitude"),
                 (
                     self.db.query(
@@ -216,9 +217,6 @@ class AreaCRUD(CRUDBase):
                 )
         return or_(*filters)
 
-
-
-
     def get_area_by_name(self, name: str) -> Area | None:
         return self.db.query(Area).filter(Area.name == name).first()
 
@@ -242,7 +240,7 @@ class AreaCRUD(CRUDBase):
                         start_date=start_date,
                         end_date=end_date,
                         query=self.db.query(
-                            Animal.id
+                            Animal.id,
                         )
                     )
                     .filter(AnimalType.id == animal_type.animalTypeId)
@@ -259,19 +257,41 @@ class AreaCRUD(CRUDBase):
             )
         return info
 
+
     def get_area_analytics_animals_count(self, area_id: int, start_date: datetime, end_date: datetime):
-        query = (
-            self._get_analytics_query(
-                area_id=area_id,
-                start_date=start_date,
-                end_date=end_date,
-                query=self.db.query(
-                    Animal.id
+        last_animal_points = (
+            self.db.query(
+                Point.id.label("locationPointId"),
+                Animal.id.label("animalId"),
+            )
+            # выбираем последнюю точку в периоде может быть несколько точек в один день
+            .select_from(Animal)
+            .join(AnimalLocation, Animal.id == AnimalLocation.animalId, isouter=True)
+            .filter(
+                or_(
+                    AnimalLocation.id.is_(None),
+                    and_(
+                        AnimalLocation.dateTimeOfVisitLocationPoint >= start_date,
+                        AnimalLocation.dateTimeOfVisitLocationPoint <= end_date,
+                    )
                 )
             )
-            .distinct(Animal.id)
+            .order_by(AnimalLocation.animalId, AnimalLocation.dateTimeOfVisitLocationPoint.desc())
+            .distinct(AnimalLocation.animalId)
+            .join(Point, or_(AnimalLocation.locationPointId == Point.id, and_(AnimalLocation.locationPointId.is_(None), Animal.chippingLocationId == Point.id)))
         )
-        return query.count()
+        correct_points = self.get_points_in_area(area_id, start_date, end_date)
+        correct_points_ids = [point.id for point in correct_points]
+        print("points_ids", [{'point_id': point.locationPointId, 'animal_id': point.animalId} for point in last_animal_points.all()])
+        print("correct_points_ids", correct_points_ids)
+        last_animal_points = last_animal_points.filter(Point.id.in_(correct_points_ids))
+
+
+        # выбираем последнюю точку в периоде может быть несколько точек за один период
+
+        print("count", last_animal_points.all())
+        return last_animal_points.count()
+
 
     def get_area_analytics_animals_arrived(self, area_id: int, start_date: datetime, end_date: datetime, type_id: int = None):
         query = self._get_analytics_query(
@@ -292,8 +312,7 @@ class AreaCRUD(CRUDBase):
                 AnimalLocation.dateTimeOfVisitLocationPoint < date
             ).order_by(AnimalLocation.dateTimeOfVisitLocationPoint.desc()).first()
 
-            if prev_location_point is None and chipping_location_id <= current_point_id:
-                prev_location_point = self.db.query(Point).filter(Point.id == chipping_location_id).first()
+
             print("Текущая точка:", current_point_id)
             print("Предыдущая точка:", prev_location_point.id if prev_location_point else None)
             print("Точка чипирования:", chipping_location_id)
@@ -324,31 +343,23 @@ class AreaCRUD(CRUDBase):
         if type_id is not None:
             query = query.filter(AnimalType.id == type_id)
         gone = 0
-        area_points = self.db.query(Point).join(AreaPoint, AreaPoint.area_id == area_id).all()
+        area_points = self.db.query(AreaPoint).filter(AreaPoint.area_id == area_id).all()
+        polygon = ShapelyPolygon([(point.latitude, point.longitude) for point in area_points]+[(area_points[0].latitude, area_points[0].longitude)])
         for animal_id, date, current_point_id, chipping_location_id, animal_location_id in query.all():
             next_location_point = self.db.query(Point).join(AnimalLocation, AnimalLocation.locationPointId == Point.id).filter(
                 AnimalLocation.animalId == animal_id,
-                AnimalLocation.dateTimeOfVisitLocationPoint > date
-            ).order_by(AnimalLocation.dateTimeOfVisitLocationPoint.asc()).first()
+                AnimalLocation.id > animal_location_id
+            ).first()
             print("Текущая точка:", current_point_id)
             print("Следующая точка:", next_location_point.id if next_location_point else None)
             print("Координаты следующей точки:", (next_location_point.latitude, next_location_point.longitude) if next_location_point else "None")
             print("Координаты зоны:", [(point.latitude, point.longitude) for point in area_points] )
             print("Точка чипирования:", chipping_location_id)
             print()
-            if not next_location_point:
-                next_location_point = self.db.query(Point).filter(Point.id == current_point_id).first()
+
             if next_location_point is not None:
-                is_in_area = True
-                for point in area_points:
-                    if not (point.latitude <= next_location_point.latitude and
-                        (next_location_point.longitude - point.longitude) * (point.latitude - next_location_point.latitude)
-                        >= (point.longitude - next_location_point.longitude) * (next_location_point.latitude - point.latitude)):
-                        is_in_area = False
-                        break
-                if not is_in_area:
+                if not (polygon.contains(Point(next_location_point.latitude, next_location_point.longitude))):
                     gone += 1
-                print("Следующая точка в зоне:", is_in_area is None)
         return gone
 
     def get_next_animal_location(self, animal_id: int, date_time: datetime):
@@ -359,8 +370,49 @@ class AreaCRUD(CRUDBase):
             .order_by(AnimalLocation.dateTimeOfVisitLocationPoint)
             .first()
         )
+    def get_points_in_area(self, area_id: int, start_date: datetime, end_date: datetime):
+        # area_points = self.db.query(AreaPoint).filter(AreaPoint.area_id == area_id).all()
+        # all_points = self.db.query(Point).join(AnimalLocation, AnimalLocation.locationPointId == Point.id)
+        # result = []
+        # for point in all_points.all():
+        #     is_in_area = True
+        #     for area_point in area_points:
+        #         if not (area_point.latitude <= point.latitude and
+        #                 (point.longitude - area_point.longitude) * (area_point.latitude - point.latitude)
+        #                 >= (area_point.longitude - point.longitude) * (point.latitude - area_point.latitude)):
+        #             is_in_area = False
+        #             break
+        #     if is_in_area:
+        #         result.append(point)
+        # polygon = ShapelyPolygon([(point.latitude, point.longitude) for point in area_points]+[(area_points[0].latitude, area_points[0].longitude)])
+        # result = []
+        # for point in all_points.all():
+        #     if polygon.contains(ShapelyPoint(point.latitude, point.longitude)):
+        #         result.append(point)
+        query = (
+            self.db.query(Point)
+            .select_from(AnimalLocation)
+            .join(Animal, Animal.id == AnimalLocation.animalId)
+            .join(AnimalTypeAnimal, AnimalTypeAnimal.animal_id == Animal.id)
+            .join(AnimalType, AnimalType.id == AnimalTypeAnimal.type_id)
+            .join(Point, or_(Point.id == AnimalLocation.locationPointId, Point.id == Animal.chippingLocationId))
+            .join(AreaPoint, AreaPoint.area_id == area_id)
+            .filter(
+                Point.latitude <= AreaPoint.latitude,
+                (AreaPoint.longitude - Point.longitude) * (Point.latitude - AreaPoint.latitude)
+                    >= (Point.longitude - AreaPoint.longitude) * (AreaPoint.latitude - Point.latitude)
+            )
+        )
+        return query.all()
+
+
+
+
+
+
 
     def _get_analytics_query(self, area_id: int, query, start_date: datetime = None, end_date: datetime = None):
+        area_points = self.get_points_in_area(area_id, start_date, end_date)
         query = (
             query
             .select_from(AnimalLocation)
@@ -368,13 +420,8 @@ class AreaCRUD(CRUDBase):
             .join(AnimalTypeAnimal, AnimalTypeAnimal.animal_id == Animal.id)
             .join(AnimalType, AnimalType.id == AnimalTypeAnimal.type_id)
             .join(Point, or_(Point.id == AnimalLocation.locationPointId, Point.id == Animal.chippingLocationId))
-            .join(Area, Area.id == area_id)
-            .join(AreaPoint)
-            .filter(
-                AreaPoint.latitude <= Point.latitude,
-                (Point.longitude - AreaPoint.longitude) * (AreaPoint.latitude - Point.latitude)
-                >= (AreaPoint.longitude - Point.longitude) * (Point.latitude - AreaPoint.latitude),
-            ))
+            .filter(Point.id.in_([point.id for point in area_points]))
+        )
         if start_date:
             query = query.filter(AnimalLocation.dateTimeOfVisitLocationPoint >= start_date)
         if end_date:

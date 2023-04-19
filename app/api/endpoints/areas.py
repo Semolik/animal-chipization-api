@@ -115,6 +115,7 @@ def get_area_analytics(
     if area is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Зона не найдена")
+    print(f"tesssst area {area_id}",[(point.latitude, point.longitude, point.id) for point in area_crud.get_points_in_area(area_id=area_id, start_date=startDate, end_date=endDate)])
     analytics = area_crud.get_area_analytics(
         area_id=area_id,
         start_date=startDate,
