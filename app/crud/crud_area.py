@@ -2,9 +2,7 @@ from datetime import datetime
 from typing import List, Union
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_, and_, distinct, select, literal_column, case, exists, not_
-from sqlalchemy.orm import aliased, subqueryload
-from shapely import Point as ShapelyPoint, Polygon as ShapelyPolygon
+from sqlalchemy import func, or_, and_
 from app.crud.base import CRUDBase
 from app.models.animals import Animal, AnimalLocation, AnimalType, AnimalTypeAnimal
 from app.models.areas import Area, AreaPoint
@@ -103,13 +101,9 @@ class AreaCRUD(CRUDBase):
             }
             for filter_name, filter in filters.items():
                 error_area = query.filter(filter).first()
-                #print(f"New area points: {points}")
 
                 if error_area is not None:
                     msg =f"New area intersects with {filter_name} area {error_area.id}"
-                    #print(msg)
-                    # print(
-                    #     f"Error area points: {[(point.latitude, point.longitude) for point in error_area.areaPoints]}")
                     raise HTTPException(status_code=400, detail=msg)
             return True
 
@@ -220,11 +214,11 @@ class AreaCRUD(CRUDBase):
     def get_area_by_name(self, name: str) -> Area | None:
         return self.db.query(Area).filter(Area.name == name).first()
 
-    def get_area_analytics(self, area_id: int, start_date: datetime, end_date: datetime):
-        return []
+    def get_area_analytics(self, correct_points, start_date: datetime, end_date: datetime):
+
         query = (
             self._get_analytics_query(
-                area_id=area_id,
+                correct_points=correct_points,
                 start_date=start_date,
                 end_date=end_date,
                 query=self.db.query(
@@ -237,7 +231,7 @@ class AreaCRUD(CRUDBase):
         info = []
         for animal_type in query:
             type_query = (self._get_analytics_query(
-                        area_id=area_id,
+                        correct_points=correct_points,
                         start_date=start_date,
                         end_date=end_date,
                         query=self.db.query(
@@ -246,20 +240,20 @@ class AreaCRUD(CRUDBase):
                     )
                     .filter(AnimalType.id == animal_type.animalTypeId)
                     .distinct(Animal.id))
-            print("type_query", type_query.all())
+
             info.append(
                 {
                     "animalType": animal_type.animalType,
                     "animalTypeId": animal_type.animalTypeId,
-                    "animalsArrived": self.get_area_analytics_animals_arrived(area_id, start_date, end_date, type_id=animal_type.animalTypeId),
-                    "animalsGone": self.get_area_analytics_animals_gone(area_id, start_date, end_date, type_id=animal_type.animalTypeId),
-                    "quantityAnimals": type_query.count(),
+                    "animalsArrived": self.get_area_analytics_animals_arrived(correct_points=correct_points, start_date=start_date, end_date=end_date, type_id=animal_type.animalTypeId),
+                    "animalsGone": self.get_area_analytics_animals_gone(correct_points=correct_points,start_date=start_date, end_date=end_date,type_id=animal_type.animalTypeId),
+                    "quantityAnimals": type_query.count()
                 }
             )
         return info
 
 
-    def get_area_analytics_animals_count(self, start_date: datetime, end_date: datetime,correct_points):
+    def get_area_analytics_animals_count(self, start_date: datetime, end_date: datetime,correct_points, type_id: int = None):
         last_animal_points = (
             self._get_analytics_query(
                 correct_points=correct_points,
@@ -273,6 +267,8 @@ class AreaCRUD(CRUDBase):
             .order_by(AnimalLocation.animalId, AnimalLocation.dateTimeOfVisitLocationPoint.desc())
             .distinct(AnimalLocation.animalId)
         )
+        if type_id is not None:
+            last_animal_points = last_animal_points.filter(AnimalType.id == type_id)
         return last_animal_points.count()
 
     def get_area_analytics_animals_arrived(self, correct_points: list, start_date: datetime, end_date: datetime, type_id: int = None):
@@ -322,16 +318,9 @@ class AreaCRUD(CRUDBase):
                 visited_points = visited_points_in_period.all()
                 visited_points_ids = [point.id for point in visited_points]
                 points_in_area = [point in correct_points_ids for point in visited_points_ids]
-                print("correct_points_ids", correct_points_ids)
-                print("visited_points_ids", visited_points_ids)
-                print("points_in_area", points_in_area)
-                print("chipping_location_id", chipping_location_id)
-                print("first_visit_point_id", first_visit_point_id)
                 for point, prev_point in zip(points_in_area, points_in_area[1:]):
                     if point and not prev_point:
                         arrived += 1
-                        print("arrived", animal_id, date, first_visit_point_id, chipping_location_id,
-                              animal_location_id)
                         break
         return arrived
 
@@ -351,6 +340,8 @@ class AreaCRUD(CRUDBase):
             .order_by(AnimalLocation.animalId, AnimalLocation.dateTimeOfVisitLocationPoint.desc())
             .distinct(AnimalLocation.animalId)
         )
+        if type_id is not None:
+            last_animal_points = last_animal_points.filter(AnimalType.id == type_id)
         animal_ids = [animal.animalId for animal in last_animal_points]
         gone_animals = (
             self._get_analytics_query(

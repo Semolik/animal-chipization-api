@@ -53,9 +53,6 @@ def update_account(
     authorize: Authorize = Depends(Authorize()),
     db: Session = Depends(get_db)
 ):
-    print("current_user_id", authorize.current_user_id)
-    print("current_user_role", authorize.current_user.role)
-    print("is_admin", authorize.current_user.is_admin)
     if authorize.current_user_id != accountId and not authorize.current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Нет доступа к аккаунту")
@@ -103,10 +100,6 @@ def delete_account(
     authorize: Authorize = Depends(Authorize()),
     db: Session = Depends(get_db)
 ):
-    print("current_user_id", authorize.current_user_id)
-    print("current_user_role", authorize.current_user.role)
-    print("is_admin", authorize.current_user.is_admin)
-
     if authorize.current_user_id != accountId and not authorize.current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Нет доступа к аккаунту")

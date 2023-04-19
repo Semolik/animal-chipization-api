@@ -1,6 +1,4 @@
-import math
 from typing import List
-
 from app.schemas.locations import LocationBase
 
 

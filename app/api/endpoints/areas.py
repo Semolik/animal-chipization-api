@@ -117,7 +117,7 @@ def get_area_analytics(
                             detail="Зона не найдена")
     correct_points = area_crud.get_all_points_contained_in_area(area_id=area_id, start_date=startDate, end_date=endDate)
     analytics = area_crud.get_area_analytics(
-        area_id=area_id,
+        correct_points=correct_points,
         start_date=startDate,
         end_date=endDate
     )
