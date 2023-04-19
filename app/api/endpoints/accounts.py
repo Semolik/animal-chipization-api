@@ -35,7 +35,6 @@ def get_account(
     authorize: Authorize = Depends(Authorize()),
     db: Session = Depends(get_db)
 ):
-    print("Проверка")
     if authorize.current_user_id != accountId and not authorize.current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Нет доступа к аккаунту")
@@ -55,6 +54,8 @@ def update_account(
     db: Session = Depends(get_db)
 ):
     print("current_user_id", authorize.current_user_id)
+    print("current_user_role", authorize.current_user.role)
+    print("is_admin", authorize.current_user.is_admin)
     if authorize.current_user_id != accountId and not authorize.current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Нет доступа к аккаунту")
@@ -82,6 +83,7 @@ def create_account(
     authorize: Authorize = Depends(Authorize(is_admin=True)),
     db: Session = Depends(get_db)
 ):
+
     user_crud = UserCRUD(db)
     if user_crud.get_user_by_email(user_data.email):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
@@ -101,10 +103,11 @@ def delete_account(
     authorize: Authorize = Depends(Authorize()),
     db: Session = Depends(get_db)
 ):
+    print("current_user_id", authorize.current_user_id)
+    print("current_user_role", authorize.current_user.role)
+    print("is_admin", authorize.current_user.is_admin)
 
     if authorize.current_user_id != accountId and not authorize.current_user.is_admin:
-        print(accountId, authorize.current_user_id, authorize.current_user)
-        print(authorize.current_user_id != accountId, not authorize.current_user.is_admin)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Нет доступа к аккаунту")
     user_crud = UserCRUD(db)

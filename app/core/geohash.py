@@ -1,4 +1,5 @@
-import math
+import base64
+import hashlib
 
 
 class Geohash:
@@ -34,5 +35,19 @@ class Geohash:
         hash_str = ""
         for i in range(0, lat_bit + lon_bit, 5):
             bits = geohash[i:i+5]
-            hash_str +=  self.base32[int(bits, 2)]
+            hash_str += self.base32[int(bits, 2)]
         return hash_str
+    def encode_v2(self):
+        v1 = self.encode_v1()
+        v1_as_bytes = v1.encode()
+        v2 = base64.b64encode(v1_as_bytes).decode()
+        return v2
+
+    def encode_v3(self):
+        v1 = self.encode_v1()
+        v1_as_bytes = v1.encode()
+        md5 = hashlib.md5(v1_as_bytes)
+        md5_as_bytes = md5.digest()
+        md5_reversed = md5_as_bytes[::-1]
+        v3 = base64.b64encode(md5_reversed).decode()
+        return v3

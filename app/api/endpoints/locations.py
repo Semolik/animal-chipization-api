@@ -54,15 +54,15 @@ def get_geohashv2(
     coordinates: LocationBase = Depends(),
     authorize: Authorize = Depends(Authorize())
 ):
-    return 'asdsdf'
+    return Geohash(latitude=coordinates.latitude, longitude=coordinates.longitude).encode_v2()
 
 
-@router.get("/geohashv3")
+@router.get("/geohashv3", response_class=HTMLResponse)
 def get_geohashv3(
     coordinates: LocationBase = Depends(),
     authorize: Authorize = Depends(Authorize())
 ):
-    return 'asd'
+    return Geohash(latitude=coordinates.latitude, longitude=coordinates.longitude).encode_v3()
 
 
 @router.get("/{pointId}", response_model=Location)
