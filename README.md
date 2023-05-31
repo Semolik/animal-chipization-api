@@ -1,5 +1,5 @@
 # RESTful API сервис в рамках конкурса от SimbirSoft "Прикладное программирование if...else"
-## [Первый этап](https://github.com/Semolik/animal-chipization-api/tree/main)
+## [Решение первого этапа](https://github.com/Semolik/animal-chipization-api/tree/main)
 ## О проекте
 Были предоставлены полные требования к сервису и API. Проверка осуществлялась с помощью предоставленного тест-контейнера
 ### [Требования и API первого этапа](docs/Задание-Этап-1.pdf) 
